@@ -784,7 +784,7 @@ export default function App() {
           whileTap={{ scale: 0.98 }}
         >
           <Logo size={36} className="rounded-xl" />
-          <span className="text-lg font-bold tracking-[0.08em] text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>HOKI</span>
+          <span className="text-lg font-bold tracking-[0.08em] text-slate-900" style={{ fontFamily: 'var(--font-heading)' }}>HOKI</span>
         </motion.button>
 
         <div className="flex items-center gap-1">
@@ -845,7 +845,7 @@ export default function App() {
             whileTap={{ scale: 0.98 }}
           >
             <Logo size={36} className="rounded-xl" />
-            <span className="text-lg font-bold tracking-[0.08em] text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>HOKI</span>
+            <span className="text-lg font-bold tracking-[0.08em] text-slate-900" style={{ fontFamily: 'var(--font-heading)' }}>HOKI</span>
           </motion.button>
           <div className="flex items-center gap-2">
             {!currentUser && trialState.analysesUsed < trialState.maxAnalyses && (
