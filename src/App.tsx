@@ -871,7 +871,7 @@ export default function App() {
             )}
           </div>
         </div>
-        <div className="flex px-1.5 pb-2 gap-0.5 overflow-x-auto no-scrollbar">
+        <div className="flex justify-center px-1.5 pb-2 gap-0.5 overflow-x-auto no-scrollbar">
           {navItems.map(({ id, label }) => (
             <button
               key={id}
