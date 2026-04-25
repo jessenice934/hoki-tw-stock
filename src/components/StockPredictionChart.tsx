@@ -52,6 +52,7 @@ interface KeyEvent {
 
 interface PredictionResult {
   ticker: string;
+  name?: string;
   currentPrice: number;
   targetPrice: number;
   prediction: {
@@ -267,8 +268,13 @@ export default function StockPredictionChart({ result, monteCarloResult, entryTi
       {/* ═══ Section 1: Header + Price Summary ═══ */}
       <div className="glass-card p-6">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <h3 className="text-2xl font-bold text-slate-900">{ticker}</h3>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-baseline gap-2">
+              <h3 className="text-2xl font-bold text-slate-900">{ticker}</h3>
+              {result.name && (
+                <span className="text-base font-medium text-slate-500">{result.name}</span>
+              )}
+            </div>
             <div className={`flex items-center gap-1 ${directionColor}`}>
               <DirectionIcon className="w-5 h-5" />
               <span className="text-sm font-bold">{prediction?.direction}</span>

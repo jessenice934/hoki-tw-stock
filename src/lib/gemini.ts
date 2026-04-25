@@ -1,5 +1,5 @@
 // Gemini calls go through /api/gemini (server-side keys, never in browser bundle)
-import { normalizeTwTicker } from './finance';
+import { normalizeTwTicker, fetchTickerName } from './finance';
 
 // ============================================================
 // 即時股價抓取 (Yahoo Finance via Vite proxy) + 快取
@@ -764,6 +764,15 @@ MANDATORY REQUIREMENTS:
       rec.quantScore12 = quantPositive;
       rec.personaScore6 = personaBuy;
     }
+
+    // 覆寫公司名為 Yahoo 真實值（避免 AI 幻覺，例如 2367 ≠ 金像電）
+    await Promise.all(
+      validatedResponse.recommendations.map(async (rec: any) => {
+        if (!rec.ticker) return;
+        const realName = await fetchTickerName(rec.ticker);
+        if (realName) rec.name = realName;
+      }),
+    );
   }
 
   apiCallCount++;
@@ -837,6 +846,10 @@ Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment, institutional, 2
   if (!validatedResponse.currentPrice && livePrice) {
     validatedResponse.currentPrice = livePrice;
   }
+
+  // 覆寫公司名為 Yahoo 真實值（避免 AI 幻覺）
+  const realName = await fetchTickerName(params.ticker);
+  if (realName) validatedResponse.name = realName;
 
   apiCallCount++;
   setCachedResult(cacheKey, validatedResponse);
