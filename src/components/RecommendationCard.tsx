@@ -117,28 +117,28 @@ export default function RecommendationCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 items-stretch">
         <div className="bg-slate-50 rounded-xl p-3">
           <p className="text-xs text-slate-400 mb-1">{t('ai.result.current')}</p>
           <p className="text-lg font-bold text-slate-900 font-data">
             NT${recommendation.currentPrice.toFixed(2)}
           </p>
         </div>
-        <div className="bg-emerald-50 rounded-xl p-3">
-          <p className="text-xs text-slate-400 mb-1">{t('ai.result.entry')}</p>
-          <p className="text-lg font-bold text-emerald-600 font-data">
+        <div className="bg-blue-50 rounded-xl p-3">
+          <p className="text-xs text-slate-500 mb-1">{t('ai.result.entry')}</p>
+          <p className="text-lg font-bold text-blue-700 font-data">
             NT${recommendation.entryPrice.toFixed(2)}
           </p>
         </div>
-        <div className="bg-blue-50 rounded-xl p-3">
-          <p className="text-xs text-slate-400 mb-1">{t('ai.result.target')}</p>
-          <p className="text-lg font-bold text-blue-600 font-data">
+        <div className="bg-emerald-100 ring-2 ring-emerald-400/60 rounded-xl p-3 shadow-md shadow-emerald-500/10 -my-0.5">
+          <p className="text-xs font-semibold text-emerald-700 mb-1 tracking-wide">{t('ai.result.target')}</p>
+          <p className="text-xl font-extrabold text-emerald-700 font-data">
             NT${recommendation.targetPrice.toFixed(2)}
           </p>
         </div>
         <div className="bg-red-50 rounded-xl p-3">
-          <p className="text-xs text-slate-400 mb-1">{t('ai.result.stoploss')}</p>
-          <p className="text-lg font-bold text-red-600 font-data">
+          <p className="text-xs text-slate-500 mb-1">{t('ai.result.stoploss')}</p>
+          <p className="text-lg font-bold text-red-700 font-data">
             NT${recommendation.stopLoss.toFixed(2)}
           </p>
         </div>
@@ -235,9 +235,9 @@ export default function RecommendationCard({
                   className={cn(
                     'text-xs p-2 rounded-lg border',
                     signal.status === 'Positive'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      ? 'bg-teal-50 border-teal-200 text-teal-700'
                       : signal.status === 'Negative'
-                        ? 'bg-red-50 border-red-200 text-red-700'
+                        ? 'bg-rose-50 border-rose-200 text-rose-700'
                         : 'bg-slate-50 border-slate-200 text-slate-500'
                   )}
                 >
@@ -255,9 +255,9 @@ export default function RecommendationCard({
                     className={cn(
                       'text-xs p-2 rounded-lg border',
                       status === 'Positive'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        ? 'bg-teal-50 border-teal-200 text-teal-700'
                         : status === 'Negative'
-                          ? 'bg-red-50 border-red-200 text-red-700'
+                          ? 'bg-rose-50 border-rose-200 text-rose-700'
                           : 'bg-slate-50 border-slate-200 text-slate-500'
                     )}
                   >
