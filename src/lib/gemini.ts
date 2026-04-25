@@ -820,11 +820,18 @@ Return ONLY valid JSON:
 
   const langInstruction = params.lang === 'zh' ? 'All text in 繁體中文.' : '';
 
-  // 抓即時價格
-  const livePrice = await fetchLivePrice(params.ticker.toUpperCase());
+  // 抓即時價格 + 權威中文名（並行）
+  const [livePrice, authoritativeName] = await Promise.all([
+    fetchLivePrice(params.ticker.toUpperCase()),
+    fetchTickerName(params.ticker),
+  ]);
   const priceInfo = livePrice
     ? `LIVE MARKET PRICE for ${params.ticker.toUpperCase()}: NT$${livePrice.toFixed(2)} (use this as currentPrice, in TWD)`
     : `Unable to fetch live price for ${params.ticker.toUpperCase()}. Use your best knowledge for currentPrice.`;
+  // 鎖定公司身分，避免 AI 把 ticker 對到錯的公司（例如 2367 燿華 vs 2368 金像電）
+  const identityLock = authoritativeName
+    ? `\n\nIMPORTANT IDENTITY: Ticker ${params.ticker.toUpperCase()} = 「${authoritativeName}」(authoritative TWSE name). Your ENTIRE analysis (rationale, catalysts, scenarios, persona reasoning, bear case, every narrative) MUST be about THIS exact company. Do NOT mention or analyze any other company. If you confuse this with another ticker, the entire response is invalid.`
+    : '';
 
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
@@ -836,7 +843,7 @@ Return ONLY valid JSON:
     referenceConstraint = `USE EXACT: currentPrice=${ref.currentPrice.toFixed(2)}, targetPrice=${ref.targetPrice.toFixed(2)}, timeStop=${ref.stopLoss.toFixed(2)}.`;
   }
 
-  const userPrompt = `${params.ticker.toUpperCase()} analysis, ${params.timeframe}, today=${todayStr}. ${priceInfo} ${referenceConstraint}
+  const userPrompt = `${params.ticker.toUpperCase()} analysis, ${params.timeframe}, today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}
 Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment, institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. Max gain: ${volatilityGuard}% for this timeframe. ${langInstruction} JSON only.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt);
