@@ -868,7 +868,7 @@ const resources = {
 
 i18n.use(initReactI18next).init({
   resources,
-  lng: localStorage.getItem('hoki_lang') || 'zh',
+  lng: 'zh', // 台股 domestic 市場，鎖定中文（en 翻譯保留以免元件壞）
   interpolation: { escapeValue: false }
 });
 

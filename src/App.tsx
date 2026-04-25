@@ -720,12 +720,6 @@ export default function App() {
     }
   };
 
-  const toggleLanguage = () => {
-    const newLang = i18n.language === 'zh' ? 'en' : 'zh';
-    i18n.changeLanguage(newLang);
-    localStorage.setItem('hoki_lang', newLang);
-  };
-
   const switchTab = (tab: Tab) => {
     if (loading) return; // 分析進行中，禁止切換頁籤
     setActiveTab(tab);
@@ -815,14 +809,6 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-3">
-          <motion.button
-            onClick={toggleLanguage}
-            className="px-4 py-2 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors text-sm font-medium"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            {i18n.language === 'zh' ? 'English' : '中文'}
-          </motion.button>
           {!currentUser && trialState.analysesUsed < trialState.maxAnalyses && (
             <span className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap bg-blue-50 text-blue-600 border border-blue-200">
               {t('trial.status', { used: trialState.analysesUsed, max: trialState.maxAnalyses })}
@@ -861,13 +847,6 @@ export default function App() {
             <span className="text-base font-bold tracking-[0.08em] text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>HOKI</span>
           </motion.button>
           <div className="flex items-center gap-2">
-            <motion.button
-              onClick={toggleLanguage}
-              className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 text-xs font-medium"
-              whileTap={{ scale: 0.98 }}
-            >
-              {i18n.language === 'zh' ? 'EN' : '中'}
-            </motion.button>
             {!currentUser && trialState.analysesUsed < trialState.maxAnalyses && (
               <span className="px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap bg-blue-50 text-blue-600 border border-blue-200">
                 {trialState.maxAnalyses - trialState.analysesUsed}/{trialState.maxAnalyses}
