@@ -1,0 +1,19 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/yahoo/v8/finance/chart/:ticker",
+      "destination": "https://query1.finance.yahoo.com/v8/finance/chart/:ticker"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+      ]
+    }
+  ]
+}

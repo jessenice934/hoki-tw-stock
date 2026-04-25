@@ -1,0 +1,335 @@
+@import "tailwindcss";
+
+/* ════════════════════════════════════════════════════════════
+   HOKI Design System — 「染」 Indigo Dye
+   靈感：三峽藍染、誠品紙本、洗石子地
+   - paper 米白底取代冷白
+   - 染靛 indigo 取代 KOVA blue
+   - vermilion 朱紅／gold 金箔做點綴
+   ════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* Typography */
+  --font-sans: "Inter", "Noto Sans TC", system-ui, -apple-system, sans-serif;
+  --font-heading: "Manrope", "Noto Sans TC", system-ui, sans-serif;
+  --font-display: "Noto Serif TC", "Manrope", serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Brand semantic */
+  --color-paper: #FAF6EE;
+  --color-paper-warm: #F4EEE0;
+  --color-ink: #1A1F2E;
+  --color-ink-soft: #545968;
+
+  --color-vermilion: #C8553D;
+  --color-vermilion-soft: #F4DDD5;
+  --color-gold: #C8A85C;
+  --color-gold-soft: #F2E8CC;
+  --color-sage: #5C7C5C;
+  --color-sage-soft: #DDE5D9;
+
+  /* Override Tailwind blue scale → HOKI 染靛 indigo (primary brand)
+     This re-skins all bg-blue-* / text-blue-* / border-blue-* across
+     existing components without per-file edits. */
+  --color-blue-50:  #F1F2F8;
+  --color-blue-100: #DDE0F0;
+  --color-blue-200: #BCC2DB;
+  --color-blue-300: #8C95C0;
+  --color-blue-400: #5E6AA1;
+  --color-blue-500: #3F4E89;
+  --color-blue-600: #2E3D6B;
+  --color-blue-700: #233055;
+  --color-blue-800: #1A2440;
+  --color-blue-900: #11192E;
+  --color-blue-950: #0A0F1F;
+
+  /* ─── 台股漲跌色翻轉 ─────────────────────────────────────
+     台灣股市慣例：紅漲、綠跌（與美股相反）。
+     由於原 KOVA 大量元件用 emerald=漲、red=跌 的美式語意，
+     我們在 token 層直接把這兩個 palette 互換值：
+       --color-emerald-* → 朱紅 vermilion（漲、Bull、Buy、Positive）
+       --color-red-*     → 松綠 sage（跌、Bear、Sell、Risk）
+     如此 bg-emerald-50/text-red-600 等等所有用法自動翻面，
+     不必逐個元件改。
+     注意：刪除/錯誤等真正非金融用途的紅色，已在元件層改用
+     amber/slate，避免被本邏輯影響。
+  */
+  --color-emerald-50:  #FBEEEA;
+  --color-emerald-100: #F4DDD5;
+  --color-emerald-200: #E8B5A6;
+  --color-emerald-300: #DC8E78;
+  --color-emerald-400: #D06A4F;
+  --color-emerald-500: #C8553D;
+  --color-emerald-600: #A8412A;
+  --color-emerald-700: #8A331E;
+  --color-emerald-800: #6E2716;
+  --color-emerald-900: #501B0F;
+
+  --color-red-50:  #ECF1ED;
+  --color-red-100: #D8E2D9;
+  --color-red-200: #B6C8B8;
+  --color-red-300: #91A994;
+  --color-red-400: #738D77;
+  --color-red-500: #5C7C5C;
+  --color-red-600: #4A6B4D;
+  --color-red-700: #3A5640;
+  --color-red-800: #2C4232;
+  --color-red-900: #1F2F25;
+
+  /* rose 保留（用於 LegalConsent 警告 / 第三方 avatar palette），
+     不翻面、不衝突金融慣例 */
+
+  /* Warm the ambers (used in 信心強度) toward gold */
+  --color-amber-50:  #FBF3E0;
+  --color-amber-100: #F2E1B6;
+  --color-amber-500: #C8A85C;
+  --color-amber-600: #A88838;
+  --color-amber-700: #7E6726;
+
+  /* Convenience aliases that components can opt-in to */
+  --color-primary: var(--color-blue-600);
+  --color-primary-light: var(--color-blue-500);
+  --color-primary-10: rgba(46, 61, 107, 0.1);
+  --color-primary-20: rgba(46, 61, 107, 0.2);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.01em;
+  }
+
+  /* Selection — gold tint */
+  ::selection {
+    background-color: var(--color-gold-soft);
+    color: var(--color-ink);
+  }
+}
+
+@layer components {
+  /* ── Surfaces ──────────────────────────────────────── */
+  .glass-card {
+    border-radius: 1.25rem;
+    border: 1px solid rgba(46, 61, 107, 0.08);
+    background-color: rgba(255, 255, 255, 0.92);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.6) inset,
+      0 1px 2px 0 rgba(26, 31, 46, 0.04),
+      0 8px 24px -12px rgba(46, 61, 107, 0.08);
+    backdrop-filter: blur(20px);
+  }
+
+  .glass-card-hover {
+    border-radius: 1.25rem;
+    border: 1px solid rgba(46, 61, 107, 0.08);
+    background-color: rgba(255, 255, 255, 0.92);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.6) inset,
+      0 1px 2px 0 rgba(26, 31, 46, 0.04),
+      0 8px 24px -12px rgba(46, 61, 107, 0.08);
+    backdrop-filter: blur(20px);
+    cursor: pointer;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-card-hover:hover {
+    border-color: rgba(200, 168, 92, 0.5); /* gold hairline on hover */
+    background-color: #ffffff;
+    transform: translateY(-2px);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.7) inset,
+      0 1px 2px 0 rgba(26, 31, 46, 0.06),
+      0 16px 32px -16px rgba(46, 61, 107, 0.18);
+  }
+
+  /* Paper-stock surface — for hero / sections that want warmer tone */
+  .paper-card {
+    border-radius: 1.25rem;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 238, 224, 0.6)),
+      var(--color-paper);
+    border: 1px solid rgba(46, 61, 107, 0.08);
+    box-shadow: 0 1px 2px rgba(26, 31, 46, 0.04);
+  }
+
+  /* ── Buttons ──────────────────────────────────────── */
+  .btn-primary {
+    border-radius: 999px; /* pill — 比 KOVA 的 0.75rem 更鬆軟、台灣感 */
+    background: linear-gradient(180deg, var(--color-blue-500), var(--color-blue-700));
+    padding: 0.875rem 1.75rem;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.01em;
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.18) inset,
+      0 8px 16px -8px rgba(46, 61, 107, 0.4);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.2) inset,
+      0 14px 24px -10px rgba(46, 61, 107, 0.5),
+      0 0 0 1px rgba(200, 168, 92, 0.3);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  .btn-outline {
+    border-radius: 999px;
+    border: 1px solid rgba(46, 61, 107, 0.18);
+    background-color: rgba(255, 255, 255, 0.6);
+    padding: 0.875rem 1.75rem;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    color: var(--color-ink);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .btn-outline:hover {
+    border-color: var(--color-gold);
+    background-color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -4px rgba(200, 168, 92, 0.3);
+  }
+
+  .btn-outline:active {
+    transform: translateY(0);
+  }
+
+  /* ── Data type ──────────────────────────────────────── */
+  .font-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ── Shimmer (skeleton loading) ──────────────────────── */
+  .shimmer-bar {
+    background: linear-gradient(
+      90deg,
+      rgba(46, 61, 107, 0.04) 0%,
+      rgba(46, 61, 107, 0.10) 50%,
+      rgba(46, 61, 107, 0.04) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite linear;
+    display: block;
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .shimmer-bar {
+    animation: none !important;
+    background: rgba(46, 61, 107, 0.06) !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/* ── Atmosphere — paper warmth + indigo wash + gold flare ──── */
+.atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    /* warm gold flare top-right */
+    radial-gradient(ellipse 60% 50% at 85% 0%, rgba(200, 168, 92, 0.10), transparent 60%),
+    /* indigo wash from top */
+    radial-gradient(ellipse 90% 60% at 50% -10%, rgba(46, 61, 107, 0.08), transparent 60%),
+    /* vermilion blush bottom-left */
+    radial-gradient(ellipse 50% 50% at 10% 100%, rgba(200, 85, 61, 0.05), transparent 70%),
+    var(--color-paper);
+}
+
+/* Subtle paper grain — uses SVG noise data URI */
+.atmosphere::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='5'/%3E%3CfeColorMatrix values='0 0 0 0 0.10 0 0 0 0 0.12 0 0 0 0 0.18 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Hero gradient text — indigo → vermilion (warm sunset across paper) */
+.gradient-text {
+  background: linear-gradient(120deg, #2E3D6B 0%, #3F4E89 35%, #C8553D 75%, #C8A85C 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-family: var(--font-display);
+  font-weight: 900;
+}
+
+/* Optional: ink stamp accent — for premium badges */
+.ink-stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-vermilion);
+  color: #FFF8EC;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.1) inset, 0 0 0 1px rgba(200, 85, 61, 0.5);
+}
+
+/* Paper edge — used on hero card for subtle deckled-paper effect */
+.paper-edge {
+  position: relative;
+}
+.paper-edge::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 85%, rgba(244, 238, 224, 0.35));
+}
