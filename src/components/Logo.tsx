@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 /**
  * HOKI Logo — hanko-style ink stamp
  * 朱紅方印（vermilion seal） + 白色 H + 金箔點
@@ -9,6 +11,9 @@ interface LogoProps {
 }
 
 export default function Logo({ className = '', size = 36 }: LogoProps) {
+  const uid = useId();
+  const inkId = `hokiInk-${uid}`;
+  const grainId = `hokiPaperGrain-${uid}`;
   return (
     <svg
       viewBox="0 0 36 36"
@@ -19,19 +24,19 @@ export default function Logo({ className = '', size = 36 }: LogoProps) {
       role="img"
     >
       <defs>
-        <radialGradient id="hokiPaperGrain" cx="30%" cy="25%" r="80%">
+        <radialGradient id={grainId} cx="30%" cy="25%" r="80%">
           <stop offset="0%" stopColor="#FFF8EC" stopOpacity="0.35" />
           <stop offset="100%" stopColor="#C8553D" stopOpacity="0" />
         </radialGradient>
-        <linearGradient id="hokiInk" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={inkId} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#D85F47" />
           <stop offset="100%" stopColor="#A8412A" />
         </linearGradient>
       </defs>
 
       {/* hanko square */}
-      <rect width="36" height="36" rx="9" fill="url(#hokiInk)" />
-      <rect width="36" height="36" rx="9" fill="url(#hokiPaperGrain)" />
+      <rect width="36" height="36" rx="9" fill={`url(#${inkId})`} />
+      <rect width="36" height="36" rx="9" fill={`url(#${grainId})`} />
       {/* subtle inner ring (印泥邊) */}
       <rect
         x="1.5"

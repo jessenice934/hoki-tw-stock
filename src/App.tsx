@@ -840,11 +840,11 @@ export default function App() {
         <div className="flex items-center justify-between px-4 py-3">
           <motion.button
             onClick={() => switchTab('home')}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2.5"
             whileTap={{ scale: 0.98 }}
           >
-            <Logo size={32} className="rounded-lg" />
-            <span className="text-base font-bold tracking-[0.08em] text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>HOKI</span>
+            <Logo size={36} className="rounded-xl" />
+            <span className="text-lg font-bold tracking-[0.08em] text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>HOKI</span>
           </motion.button>
           <div className="flex items-center gap-2">
             {!currentUser && trialState.analysesUsed < trialState.maxAnalyses && (
