@@ -130,7 +130,7 @@ export default function RecommendationCard({
             NT${recommendation.entryPrice.toFixed(2)}
           </p>
         </div>
-        <div className="bg-emerald-100 ring-2 ring-emerald-400/60 rounded-xl p-3 shadow-md shadow-emerald-500/10 -my-0.5">
+        <div className="bg-emerald-100 rounded-xl p-3">
           <p className="text-xs font-semibold text-emerald-700 mb-1 tracking-wide">{t('ai.result.target')}</p>
           <p className="text-xl font-extrabold text-emerald-700 font-data">
             NT${recommendation.targetPrice.toFixed(2)}
