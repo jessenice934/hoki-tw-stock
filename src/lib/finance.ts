@@ -218,6 +218,27 @@ export async function fetchTickerName(ticker: string): Promise<string | null> {
     return cached.name;
   }
 
+  // 1) 優先打 TWSE MIS API 拿中文名（tse=上市，otc=上櫃同時查）
+  const numeric = ticker.replace(/[^0-9]/g, '');
+  if (numeric.length >= 4) {
+    try {
+      const exCh = `tse_${numeric}.tw|otc_${numeric}.tw`;
+      const resp = await fetch(`/api/twse?ex_ch=${encodeURIComponent(exCh)}`);
+      if (resp.ok) {
+        const json = await resp.json();
+        const item = json?.msgArray?.[0];
+        const cn: string | undefined = item?.n; // 中文簡稱
+        if (cn) {
+          nameCache[yahooSym] = { name: cn, timestamp: Date.now() };
+          return cn;
+        }
+      }
+    } catch {
+      // fall through to Yahoo fallback
+    }
+  }
+
+  // 2) Fallback：Yahoo（多半英文，但比沒名字好）
   try {
     const url = `/api/yahoo/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=1d&range=1d`;
     const resp = await fetch(url);

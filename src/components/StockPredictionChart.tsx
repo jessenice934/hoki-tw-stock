@@ -269,10 +269,10 @@ export default function StockPredictionChart({ result, monteCarloResult, entryTi
       <div className="glass-card p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-baseline gap-2">
-              <h3 className="text-2xl font-bold text-slate-900">{ticker}</h3>
+            <div className="flex flex-col">
+              <h3 className="text-2xl font-bold text-slate-900 leading-tight">{ticker}</h3>
               {result.name && (
-                <span className="text-base font-medium text-slate-500">{result.name}</span>
+                <span className="text-sm font-medium text-slate-500 leading-tight">{result.name}</span>
               )}
             </div>
             <div className={`flex items-center gap-1 ${directionColor}`}>

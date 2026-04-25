@@ -630,6 +630,7 @@ export default function App() {
           // 合併 AI 文字分析 + 本地圖表數據
           const mergedResult = {
             ...localResult,
+            name: aiResult.name || localResult.name,
             targetPrice: aiTarget,
             prediction: {
               direction: aiResult.prediction?.direction || localResult.prediction.direction,

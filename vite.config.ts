@@ -80,6 +80,18 @@ export default defineConfig(({ mode }) => {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
           },
         },
+        '/api/twse': {
+          target: 'https://mis.twse.com.tw',
+          changeOrigin: true,
+          rewrite: (p) => {
+            const qs = p.includes('?') ? p.slice(p.indexOf('?')) : '';
+            const sep = qs ? '&' : '?';
+            return `/stock/api/getStockInfo.jsp${qs}${sep}json=1`;
+          },
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          },
+        },
       },
     },
   };

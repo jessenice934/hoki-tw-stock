@@ -783,7 +783,16 @@ MANDATORY REQUIREMENTS:
 export const analyzeSingleStock = async (params: SingleStockParams) => {
   const cacheKey = getCacheKey('prediction', params.ticker.toUpperCase(), params.timeframe, params.lang || 'en');
   const cached = getCachedResult(cacheKey);
-  if (cached && cached.personaAnalysis?.some((p: any) => p.id === 'value' || p.id === 'trump')) return cached;
+  if (cached && cached.personaAnalysis?.some((p: any) => p.id === 'value' || p.id === 'trump')) {
+    if (!cached.name) {
+      const realName = await fetchTickerName(params.ticker);
+      if (realName) {
+        cached.name = realName;
+        setCachedResult(cacheKey, cached);
+      }
+    }
+    return cached;
+  }
 
   // 跟 VOLATILITY_GUARD 保持同步（2026-04-23 校準）
   const volatilityThresholds: Record<string, number> = {
