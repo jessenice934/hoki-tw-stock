@@ -9,6 +9,49 @@ import path from 'path';
  * Locally, Vite dev server doesn't auto-handle that path — without this plugin,
  * POST /api/gemini falls back to the SPA index.html and breaks the JSON parse.
  */
+function finmindDevApi(): Plugin {
+  return {
+    name: 'hoki-finmind-dev-api',
+    configureServer(server) {
+      server.middlewares.use('/api/finmind', async (req, res) => {
+        if (req.method !== 'GET') {
+          res.statusCode = 405;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Method not allowed' }));
+          return;
+        }
+        try {
+          const qs = (req.url || '').includes('?') ? (req.url || '').slice((req.url || '').indexOf('?') + 1) : '';
+          const query = Object.fromEntries(new URLSearchParams(qs).entries());
+
+          const mod = await server.ssrLoadModule('/api/finmind.ts');
+          const handler = (mod as { default: Function }).default;
+
+          const fakeReq = { method: req.method ?? 'GET', query };
+          const fakeRes = {
+            setHeader(k: string, v: string) { res.setHeader(k, v); },
+            status(code: number) {
+              res.statusCode = code;
+              return {
+                json(data: unknown) {
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify(data));
+                },
+                send(data: string) { res.end(data); },
+              };
+            },
+          };
+          await handler(fakeReq, fakeRes);
+        } catch (err) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: `Dev middleware error: ${String((err as Error)?.message ?? err)}` }));
+        }
+      });
+    },
+  };
+}
+
 function newsDevApi(): Plugin {
   return {
     name: 'hoki-news-dev-api',
@@ -107,7 +150,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), tailwindcss(), newsDevApi(), geminiDevApi()],
+    plugins: [react(), tailwindcss(), newsDevApi(), finmindDevApi(), geminiDevApi()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),

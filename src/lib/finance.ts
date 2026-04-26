@@ -255,6 +255,111 @@ export async function fetchTickerName(ticker: string): Promise<string | null> {
 }
 
 // ────────────────────────────────────────────────────────────
+// Institutional Flow（三大法人買賣超 via FinMind /api/finmind proxy）
+// ────────────────────────────────────────────────────────────
+
+export interface InstitutionalFlow {
+  foreign: { net: number };  // 外資（含陸資）— 單位：股
+  trust: { net: number };    // 投信
+  dealer: { net: number };   // 自營商（含避險）
+  totalNet: number;          // 三大法人合計（股）
+  totalNetLots: number;      // 三大法人合計（張，1 張=1000 股）
+  days: number;              // 實際回看交易日數
+  latestDate: string;        // 最新交易日 YYYY-MM-DD
+  avgDailyNetLots: number;   // 平均每日合計買賣超（張）
+}
+
+const instCache: Record<string, { data: InstitutionalFlow | null; timestamp: number }> = {};
+const INST_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours（盤後資料一日才更新一次）
+
+export async function fetchInstitutionalFlow(ticker: string, days = 5): Promise<InstitutionalFlow | null> {
+  const numeric = ticker.replace(/[^0-9]/g, '');
+  if (numeric.length < 4) return null;
+
+  const key = `${numeric}:${days}`;
+  const cached = instCache[key];
+  if (cached && Date.now() - cached.timestamp < INST_CACHE_TTL) return cached.data;
+
+  // 回看 days * 2 + 5 個日歷天，容納週末和國定假日
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days * 2 - 7);
+  const startStr = start.toISOString().slice(0, 10);
+  const endStr = end.toISOString().slice(0, 10);
+
+  try {
+    const url = `/api/finmind?dataset=TaiwanStockInstitutionalInvestorsBuySell&data_id=${numeric}&start_date=${startStr}&end_date=${endStr}`;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      instCache[key] = { data: null, timestamp: Date.now() };
+      return null;
+    }
+    const json = await resp.json();
+    const arr = json?.data;
+    if (!Array.isArray(arr) || arr.length === 0) {
+      instCache[key] = { data: null, timestamp: Date.now() };
+      return null;
+    }
+
+    // 按日期分組（同一日有 3-4 筆：外資/投信/自營商-自行/自營商-避險）
+    const byDate: Record<string, any[]> = {};
+    for (const row of arr) {
+      const d: string = row.date;
+      if (!d) continue;
+      if (!byDate[d]) byDate[d] = [];
+      byDate[d].push(row);
+    }
+    const sortedDates = Object.keys(byDate).sort().slice(-days);
+    if (sortedDates.length === 0) {
+      instCache[key] = { data: null, timestamp: Date.now() };
+      return null;
+    }
+
+    let foreignNet = 0;
+    let trustNet = 0;
+    let dealerNet = 0;
+
+    for (const d of sortedDates) {
+      for (const row of byDate[d]) {
+        // FinMind 欄位可能是 buy/sell 數量，或直接 buy_minus_sell
+        const net = typeof row.buy_minus_sell === 'number'
+          ? row.buy_minus_sell
+          : (row.buy ?? 0) - (row.sell ?? 0);
+        const name: string = String(row.name ?? '');
+
+        // FinMind 名稱可能是英文 Foreign_Investor / Investment_Trust / Dealer_self / Dealer_Hedging
+        // 或中文 外資/投信/自營商
+        if (name.includes('Foreign') || name.includes('外')) {
+          foreignNet += net;
+        } else if (name.includes('Investment_Trust') || name.includes('Trust') || name.includes('投信')) {
+          trustNet += net;
+        } else if (name.includes('Dealer') || name.includes('自營')) {
+          dealerNet += net;
+        }
+      }
+    }
+
+    const totalNet = foreignNet + trustNet + dealerNet;
+    const totalNetLots = Math.round(totalNet / 1000);
+    const result: InstitutionalFlow = {
+      foreign: { net: foreignNet },
+      trust: { net: trustNet },
+      dealer: { net: dealerNet },
+      totalNet,
+      totalNetLots,
+      days: sortedDates.length,
+      latestDate: sortedDates[sortedDates.length - 1],
+      avgDailyNetLots: Math.round(totalNetLots / sortedDates.length),
+    };
+    instCache[key] = { data: result, timestamp: Date.now() };
+    return result;
+  } catch {
+    instCache[key] = { data: null, timestamp: Date.now() };
+    return null;
+  }
+}
+
+// ────────────────────────────────────────────────────────────
 // News Headlines (Google News RSS via /api/news proxy)
 // ────────────────────────────────────────────────────────────
 

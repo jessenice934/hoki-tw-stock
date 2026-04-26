@@ -1,5 +1,5 @@
 // Gemini calls go through /api/gemini (server-side keys, never in browser bundle)
-import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines } from './finance';
+import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow } from './finance';
 
 // ============================================================
 // 即時股價抓取 (Yahoo Finance via Vite proxy) + 快取
@@ -333,6 +333,34 @@ function repairJson(text: string): any {
       throw new Error('Failed to parse AI response as JSON');
     }
   }
+}
+
+// ============================================================
+// 真實三大法人資料 → institutionalActivity 結構
+// ============================================================
+function buildInstitutionalActivity(flow: InstitutionalFlow, lang?: string) {
+  // 用平均日合計判斷強弱（單日 > 1000 張視為明顯）
+  const absAvg = Math.abs(flow.avgDailyNetLots);
+  let netInstitutionalFlow: 'Accumulating' | 'Distributing' | 'Neutral';
+  if (flow.totalNetLots > 0 && absAvg > 200) netInstitutionalFlow = 'Accumulating';
+  else if (flow.totalNetLots < 0 && absAvg > 200) netInstitutionalFlow = 'Distributing';
+  else netInstitutionalFlow = 'Neutral';
+
+  const fmtLots = (shares: number): string => {
+    const lots = Math.round(shares / 1000);
+    return lots >= 0 ? `+${lots.toLocaleString()}` : lots.toLocaleString();
+  };
+
+  const isZh = lang === 'zh';
+  const recentInsiderTrades = isZh
+    ? `近 ${flow.days} 個交易日（截至 ${flow.latestDate}）三大法人合計 ${fmtLots(flow.totalNet)} 張，平均每日 ${flow.avgDailyNetLots >= 0 ? '+' : ''}${flow.avgDailyNetLots.toLocaleString()} 張`
+    : `Last ${flow.days} trading days (through ${flow.latestDate}): institutional net flow ${fmtLots(flow.totalNet)} lots, avg ${flow.avgDailyNetLots >= 0 ? '+' : ''}${flow.avgDailyNetLots.toLocaleString()} lots/day`;
+
+  const topHolderChange = isZh
+    ? `外資 ${fmtLots(flow.foreign.net)} 張、投信 ${fmtLots(flow.trust.net)} 張、自營商 ${fmtLots(flow.dealer.net)} 張`
+    : `Foreign ${fmtLots(flow.foreign.net)}, Trust ${fmtLots(flow.trust.net)}, Dealer ${fmtLots(flow.dealer.net)} lots`;
+
+  return { netInstitutionalFlow, recentInsiderTrades, topHolderChange };
 }
 
 // ============================================================
@@ -862,10 +890,11 @@ Return ONLY valid JSON:
 
   const langInstruction = params.lang === 'zh' ? 'All text in 繁體中文.' : '';
 
-  // 抓即時價格 + 權威中文名（並行）
-  const [livePrice, authoritativeName] = await Promise.all([
+  // 抓即時價格 + 權威中文名 + 三大法人（並行）
+  const [livePrice, authoritativeName, instFlow] = await Promise.all([
     fetchLivePrice(params.ticker.toUpperCase()),
     fetchTickerName(params.ticker),
+    fetchInstitutionalFlow(params.ticker, 5),
   ]);
   // 抓最新新聞標題（用中文名提升搜尋精準度）
   const newsHeadlines = await fetchNewsHeadlines(params.ticker, authoritativeName);
@@ -891,7 +920,11 @@ Return ONLY valid JSON:
     ? `\n\nRECENT NEWS HEADLINES (${newsHeadlines.length} real articles from Google News — use these to determine actual sentiment ratios and inform analysis):\n${newsHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n')}`
     : '';
 
-  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}
+  const instContext = instFlow
+    ? `\n\nINSTITUTIONAL FLOW (real TWSE data, last ${instFlow.days} trading days through ${instFlow.latestDate}):\n- 外資 (Foreign): ${Math.round(instFlow.foreign.net / 1000).toLocaleString()} 張 net\n- 投信 (Trust): ${Math.round(instFlow.trust.net / 1000).toLocaleString()} 張 net\n- 自營商 (Dealer): ${Math.round(instFlow.dealer.net / 1000).toLocaleString()} 張 net\n- 三大法人合計 (Total): ${instFlow.totalNetLots.toLocaleString()} 張 (${instFlow.totalNetLots >= 0 ? 'net buying' : 'net selling'})\nUse this REAL data to inform your rationale, scenarios and direction — do NOT contradict it.`
+    : '';
+
+  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}
 Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment (derive newsRatio from the actual headlines above if provided), institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. Max gain: ${volatilityGuard}% for ${normTf} timeframe (longer timeframe = higher allowed gain, reflect the actual horizon in targetPrice). ${langInstruction} JSON only.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt);
@@ -904,6 +937,11 @@ Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment (derive newsRatio
     validatedResponse.currentPrice = params.reference.currentPrice;
     validatedResponse.targetPrice = params.reference.targetPrice;
     validatedResponse.timeStop = params.reference.stopLoss;
+  }
+
+  // 用真實三大法人資料覆蓋 AI 編造的 institutionalActivity
+  if (instFlow) {
+    validatedResponse.institutionalActivity = buildInstitutionalActivity(instFlow, params.lang);
   }
 
   // 確保 currentPrice 存在（fallback to live price）
