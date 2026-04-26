@@ -251,7 +251,7 @@ export default function App() {
         duration: formData.duration,
         lang: i18n.language,
       });
-      setResult({ type: 'recommendation', data: advice });
+      setResult({ type: 'recommendation', data: advice, strategyType: formData.type, duration: formData.duration });
       const task = {
         id: Date.now().toString(),
         type: 'recommendation' as const,
@@ -1037,6 +1037,18 @@ export default function App() {
                   <div className="space-y-6">
                     <ResultDisclaimerBanner />
                     <div className="glass-card p-6">
+                      <div className="flex flex-wrap items-center gap-2 mb-3">
+                        {result.strategyType && (
+                          <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
+                            {t(`form.type.${result.strategyType}`)}
+                          </span>
+                        )}
+                        {result.duration && (
+                          <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-sm font-medium">
+                            {result.duration}
+                          </span>
+                        )}
+                      </div>
                       <h2 className="text-2xl font-bold text-slate-900 mb-4">
                         {t('ai.result.title')}
                       </h2>
