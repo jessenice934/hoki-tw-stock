@@ -1,5 +1,5 @@
 // Gemini calls go through /api/gemini (server-side keys, never in browser bundle)
-import { normalizeTwTicker, fetchTickerName } from './finance';
+import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines } from './finance';
 
 // ============================================================
 // 即時股價抓取 (Yahoo Finance via Vite proxy) + 快取
@@ -867,6 +867,8 @@ Return ONLY valid JSON:
     fetchLivePrice(params.ticker.toUpperCase()),
     fetchTickerName(params.ticker),
   ]);
+  // 抓最新新聞標題（用中文名提升搜尋精準度）
+  const newsHeadlines = await fetchNewsHeadlines(params.ticker, authoritativeName);
   const priceInfo = livePrice
     ? `LIVE MARKET PRICE for ${params.ticker.toUpperCase()}: NT$${livePrice.toFixed(2)} (use this as currentPrice, in TWD)`
     : `Unable to fetch live price for ${params.ticker.toUpperCase()}. Use your best knowledge for currentPrice.`;
@@ -885,8 +887,12 @@ Return ONLY valid JSON:
     referenceConstraint = `USE EXACT: currentPrice=${ref.currentPrice.toFixed(2)}, targetPrice=${ref.targetPrice.toFixed(2)}, timeStop=${ref.stopLoss.toFixed(2)}.`;
   }
 
-  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}
-Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment, institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. Max gain: ${volatilityGuard}% for ${normTf} timeframe (longer timeframe = higher allowed gain, reflect the actual horizon in targetPrice). ${langInstruction} JSON only.`;
+  const newsContext = newsHeadlines.length > 0
+    ? `\n\nRECENT NEWS HEADLINES (${newsHeadlines.length} real articles from Google News — use these to determine actual sentiment ratios and inform analysis):\n${newsHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n')}`
+    : '';
+
+  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}
+Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment (derive newsRatio from the actual headlines above if provided), institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. Max gain: ${volatilityGuard}% for ${normTf} timeframe (longer timeframe = higher allowed gain, reflect the actual horizon in targetPrice). ${langInstruction} JSON only.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt);
 

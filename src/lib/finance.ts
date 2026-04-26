@@ -255,6 +255,31 @@ export async function fetchTickerName(ticker: string): Promise<string | null> {
 }
 
 // ────────────────────────────────────────────────────────────
+// News Headlines (Google News RSS via /api/news proxy)
+// ────────────────────────────────────────────────────────────
+
+const newsCache: Record<string, { headlines: string[]; timestamp: number }> = {};
+const NEWS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+export async function fetchNewsHeadlines(ticker: string, name: string | null): Promise<string[]> {
+  const key = ticker.toUpperCase();
+  const cached = newsCache[key];
+  if (cached && Date.now() - cached.timestamp < NEWS_CACHE_TTL) return cached.headlines;
+
+  const query = name ? `${name} ${ticker} 股票` : `${ticker} 台股`;
+  try {
+    const resp = await fetch(`/api/news?q=${encodeURIComponent(query)}`);
+    if (!resp.ok) return [];
+    const json = await resp.json();
+    const headlines: string[] = json?.titles ?? [];
+    if (headlines.length > 0) newsCache[key] = { headlines, timestamp: Date.now() };
+    return headlines;
+  } catch {
+    return [];
+  }
+}
+
+// ────────────────────────────────────────────────────────────
 // 2. Volatility Metrics
 // ────────────────────────────────────────────────────────────
 
