@@ -113,7 +113,7 @@ export default function WatchlistSection({
               <div className="text-right flex-shrink-0">
                 <p className="text-xs text-slate-400 mb-0.5">{t('watchlist.current.price')}</p>
                 <p className="text-2xl font-bold text-slate-900 font-data">
-                  NT${item.currentPrice}
+                  NT${Number(item.currentPrice).toFixed(2)}
                 </p>
               </div>
             )}

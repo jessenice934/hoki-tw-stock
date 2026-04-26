@@ -399,8 +399,8 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
                                   key={i}
                                   recommendation={rec}
                                   onAddToWatchlist={onAddToWatchlist ? () => onAddToWatchlist(rec.ticker, rec.name, {
-                                    currentPrice: rec.currentPrice?.toString(),
-                                    targetPrice: rec.targetPrice?.toString(),
+                                    currentPrice: rec.currentPrice?.toFixed(2),
+                                    targetPrice: rec.targetPrice?.toFixed(2),
                                   }) : undefined}
                                   isWatched={watchedTickers.includes(rec.ticker)}
                                   onAnalyze={onAnalyze}
@@ -430,8 +430,8 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
                                 resultData.ticker,
                                 resultData.ticker,
                                 {
-                                  currentPrice: resultData.currentPrice?.toString(),
-                                  targetPrice: resultData.targetPrice?.toString(),
+                                  currentPrice: resultData.currentPrice?.toFixed(2),
+                                  targetPrice: resultData.targetPrice?.toFixed(2),
                                 }
                               ) : undefined}
                               isWatched={watchedTickers.includes(resultData.ticker)}

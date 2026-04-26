@@ -330,9 +330,9 @@ export default function App() {
       ticker: recommendation.ticker,
       name: recommendation.name,
       addedAt: new Date().toISOString(),
-      entryPrice: recommendation.entryPrice?.toString(),
-      targetPrice: recommendation.targetPrice?.toString(),
-      currentPrice: recommendation.currentPrice?.toString(),
+      entryPrice: recommendation.entryPrice?.toFixed(2),
+      targetPrice: recommendation.targetPrice?.toFixed(2),
+      currentPrice: recommendation.currentPrice?.toFixed(2),
     };
     addToWatchlist(item, currentUser!.id);
     setWatchlist(getWatchlist(currentUser?.id));
@@ -1232,8 +1232,8 @@ export default function App() {
                             ticker: predictionResult.ticker,
                             name: predictionResult.ticker,
                             addedAt: new Date().toISOString(),
-                            targetPrice: predictionResult.targetPrice?.toString(),
-                            currentPrice: predictionResult.currentPrice?.toString(),
+                            targetPrice: predictionResult.targetPrice?.toFixed(2),
+                            currentPrice: predictionResult.currentPrice?.toFixed(2),
                           };
                           addToWatchlist(item, currentUser!.id);
                           setWatchlist(getWatchlist(currentUser?.id));
