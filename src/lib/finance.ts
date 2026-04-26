@@ -610,6 +610,150 @@ export function computeSupportResistance(
 }
 
 // ────────────────────────────────────────────────────────────
+// Evidence-based Price Band
+// 由實際資料推導出「合理預期區間」：σ√T 波動帶 + 多訊號 drift
+// ────────────────────────────────────────────────────────────
+
+export interface EvidenceBandComponent {
+  name: string;
+  value: string;
+  driftPct: number;
+}
+
+export interface EvidenceBand {
+  timeframe: string;
+  timeframeDays: number;
+  currentPrice: number;
+  baseTargetPrice: number;
+  lowTargetPrice: number;
+  highTargetPrice: number;
+  expectedDriftPct: number;
+  oneSigmaPct: number;
+  annualVolPct: number;
+  components: EvidenceBandComponent[];
+}
+
+const TIMEFRAME_DAYS: Record<string, number> = {
+  '1w': 5,
+  '2w': 10,
+  '3w': 15,
+  '1m': 21,
+  '2m': 42,
+  '3m': 63,
+  '6m': 126,
+  '1y': 252,
+};
+
+function clampPct(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+export function computeEvidenceBand(args: {
+  prices: HistoricalPrice[];
+  currentPrice: number;
+  timeframe: string;
+  instFlow?: { totalNetLots: number; days: number } | null;
+  fundamentals?: { pe: number | null; revenueYoY: number | null; divYield: number | null } | null;
+}): EvidenceBand | null {
+  const { prices, currentPrice, timeframe, instFlow, fundamentals } = args;
+  if (!prices || prices.length < 30 || !(currentPrice > 0)) return null;
+
+  const tfKey = timeframe in TIMEFRAME_DAYS ? timeframe : '1m';
+  const T = TIMEFRAME_DAYS[tfKey];
+
+  // 1. 年化波動率（從近 60 日對數報酬）
+  const slice = prices.slice(-61);
+  const logReturns: number[] = [];
+  for (let i = 1; i < slice.length; i++) {
+    if (slice[i].close > 0 && slice[i - 1].close > 0) {
+      logReturns.push(Math.log(slice[i].close / slice[i - 1].close));
+    }
+  }
+  if (logReturns.length < 20) return null;
+  const mean = logReturns.reduce((s, r) => s + r, 0) / logReturns.length;
+  const variance = logReturns.reduce((s, r) => s + (r - mean) ** 2, 0) / (logReturns.length - 1);
+  const dailyVol = Math.sqrt(variance);
+  const annualVolPct = dailyVol * Math.sqrt(252) * 100;
+
+  // 2. σ√T 波動帶（百分比，timeframe 內 1σ 預期幅度）
+  const oneSigmaPct = dailyVol * Math.sqrt(T) * 100;
+
+  // 3. Drift 組成（每項貢獻 % 偏移，以 √(T/21) 縮放，月為基準）
+  const scale = Math.sqrt(T / 21);
+  const components: EvidenceBandComponent[] = [];
+
+  // 3a. 動能：20 日報酬率
+  const back20 = prices[prices.length - 21]?.close;
+  if (back20 && back20 > 0) {
+    const mom20 = ((currentPrice - back20) / back20) * 100;
+    const momDrift = clampPct(mom20 * 0.25, -4, 4) * scale;
+    components.push({ name: '20-day momentum', value: `${mom20.toFixed(2)}%`, driftPct: momDrift });
+  }
+
+  // 3b. RSI 偏移
+  try {
+    const rsi = calculateRSI(prices, 14);
+    let rsiDrift = 0;
+    if (rsi > 70) rsiDrift = -2;
+    else if (rsi < 30) rsiDrift = 2;
+    else if (rsi > 55) rsiDrift = 0.8;
+    else if (rsi < 45) rsiDrift = -0.8;
+    components.push({ name: `RSI(14)=${rsi.toFixed(1)}`, value: rsi > 70 ? 'overbought' : rsi < 30 ? 'oversold' : 'neutral', driftPct: rsiDrift * scale });
+  } catch {
+    /* skip */
+  }
+
+  // 3c. 三大法人流向（占近期總成交量的相對比例）
+  if (instFlow && instFlow.totalNetLots) {
+    const recentVol = prices.slice(-instFlow.days).reduce((s, p) => s + (p.volume || 0), 0);
+    if (recentVol > 0) {
+      const flowRatio = (instFlow.totalNetLots * 1000) / recentVol;
+      const flowDrift = clampPct(flowRatio * 60, -3, 3) * scale;
+      components.push({ name: 'Institutional net flow', value: `${instFlow.totalNetLots.toLocaleString()} 張`, driftPct: flowDrift });
+    }
+  }
+
+  // 3d. 基本面：營收 YoY、PE 偏離、殖利率
+  if (fundamentals) {
+    if (fundamentals.revenueYoY !== null) {
+      const revDrift = clampPct(fundamentals.revenueYoY * 0.08, -3, 3) * scale;
+      components.push({ name: 'Revenue YoY', value: `${fundamentals.revenueYoY.toFixed(1)}%`, driftPct: revDrift });
+    }
+    if (fundamentals.pe !== null && fundamentals.pe > 0) {
+      let peDrift = 0;
+      if (fundamentals.pe < 12) peDrift = 1.5;
+      else if (fundamentals.pe < 18) peDrift = 0.7;
+      else if (fundamentals.pe > 35) peDrift = -1.5;
+      else if (fundamentals.pe > 25) peDrift = -0.7;
+      components.push({ name: `P/E=${fundamentals.pe.toFixed(1)}x`, value: peDrift > 0 ? 'cheap' : peDrift < 0 ? 'rich' : 'fair', driftPct: peDrift * scale });
+    }
+    if (fundamentals.divYield !== null && fundamentals.divYield > 0) {
+      const ydDrift = clampPct((fundamentals.divYield - 2) * 0.4, -1.5, 1.5) * scale;
+      components.push({ name: `Dividend yield=${fundamentals.divYield.toFixed(2)}%`, value: ydDrift > 0 ? 'attractive' : 'low', driftPct: ydDrift });
+    }
+  }
+
+  const expectedDriftPct = components.reduce((s, c) => s + c.driftPct, 0);
+
+  const baseTargetPrice = currentPrice * (1 + expectedDriftPct / 100);
+  const lowTargetPrice = currentPrice * (1 + (expectedDriftPct - oneSigmaPct) / 100);
+  const highTargetPrice = currentPrice * (1 + (expectedDriftPct + oneSigmaPct) / 100);
+
+  return {
+    timeframe: tfKey,
+    timeframeDays: T,
+    currentPrice,
+    baseTargetPrice,
+    lowTargetPrice,
+    highTargetPrice,
+    expectedDriftPct,
+    oneSigmaPct,
+    annualVolPct,
+    components,
+  };
+}
+
+// ────────────────────────────────────────────────────────────
 // News Headlines (Google News RSS via /api/news proxy)
 // ────────────────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 // Gemini calls go through /api/gemini (server-side keys, never in browser bundle)
-import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals, fetchHistoricalPrices, computeSupportResistance, calculateRSI, HistoricalPrice } from './finance';
+import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals, fetchHistoricalPrices, computeSupportResistance, calculateRSI, HistoricalPrice, computeEvidenceBand, EvidenceBand } from './finance';
 
 // ============================================================
 // 即時股價抓取 (Yahoo Finance via Vite proxy) + 快取
@@ -1203,6 +1203,17 @@ Return ONLY valid JSON:
   const srLevels = (livePrice && historicalPrices.length >= 10)
     ? computeSupportResistance(historicalPrices, livePrice, 90)
     : { supportLevels: [], resistanceLevels: [] };
+
+  // 由真實波動率 × √T + 多訊號 drift 推導出合理預期區間
+  const evidenceBand: EvidenceBand | null = (livePrice && historicalPrices.length >= 30)
+    ? computeEvidenceBand({
+        prices: historicalPrices,
+        currentPrice: livePrice,
+        timeframe: normTf,
+        instFlow: instFlow ? { totalNetLots: instFlow.totalNetLots, days: instFlow.days } : null,
+        fundamentals: fundamentals ? { pe: fundamentals.pe, revenueYoY: fundamentals.revenueYoY, divYield: fundamentals.divYield } : null,
+      })
+    : null;
   const priceInfo = livePrice
     ? `LIVE MARKET PRICE for ${params.ticker.toUpperCase()}: NT$${livePrice.toFixed(2)} (use this as currentPrice, in TWD)`
     : `Unable to fetch live price for ${params.ticker.toUpperCase()}. Use your best knowledge for currentPrice.`;
@@ -1237,8 +1248,23 @@ Return ONLY valid JSON:
     ? `\n\nREAL TECHNICAL LEVELS (computed from last 90 trading days of TWSE OHLC via swing-pivot clustering — these are observed, NOT fabricated):\n${srLevels.supportLevels.length > 0 ? `Support levels (below current NT$${livePrice?.toFixed(2)}): ${srLevels.supportLevels.map(s => `${s.label}=NT$${s.price.toFixed(2)} (${s.touches} touches)`).join(', ')}\n` : ''}${srLevels.resistanceLevels.length > 0 ? `Resistance levels (above current): ${srLevels.resistanceLevels.map(r => `${r.label}=NT$${r.price.toFixed(2)} (${r.touches} touches)`).join(', ')}\n` : ''}The technicals.supportLevels / resistanceLevels arrays will be auto-overridden with these — your role is to discuss in rationale how price action interacts with these specific levels.`
     : '';
 
-  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}${fundContext}${srContext}
-Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment (derive newsRatio from the actual headlines above if provided), institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. Max gain: ${volatilityGuard}% for ${normTf} timeframe (longer timeframe = higher allowed gain, reflect the actual horizon in targetPrice). ${langInstruction} JSON only.`;
+  // Evidence-derived expected range — 不是規定，是用真實波動 + 多訊號數學推導
+  const evidenceContext = evidenceBand
+    ? `\n\nEVIDENCE-DERIVED PRICE BAND for ${normTf} (timeframeDays=${evidenceBand.timeframeDays}; from realized volatility × √T + multi-signal drift — DO NOT contradict):
+- Annualized volatility: ${evidenceBand.annualVolPct.toFixed(1)}% (last 60d log-returns)
+- 1σ expected range over ${evidenceBand.timeframeDays} trading days: ±${evidenceBand.oneSigmaPct.toFixed(2)}%
+- Drift bias from signals (sum): ${evidenceBand.expectedDriftPct >= 0 ? '+' : ''}${evidenceBand.expectedDriftPct.toFixed(2)}%
+${evidenceBand.components.map((c) => `  · ${c.name} (${c.value}): ${c.driftPct >= 0 ? '+' : ''}${c.driftPct.toFixed(2)}%`).join('\n')}
+- Implied price band:
+  · Low (drift − 1σ): NT$${evidenceBand.lowTargetPrice.toFixed(2)} (${(((evidenceBand.lowTargetPrice - evidenceBand.currentPrice) / evidenceBand.currentPrice) * 100).toFixed(1)}%)
+  · Base (drift): NT$${evidenceBand.baseTargetPrice.toFixed(2)} (${(((evidenceBand.baseTargetPrice - evidenceBand.currentPrice) / evidenceBand.currentPrice) * 100).toFixed(1)}%)
+  · High (drift + 1σ): NT$${evidenceBand.highTargetPrice.toFixed(2)} (${(((evidenceBand.highTargetPrice - evidenceBand.currentPrice) / evidenceBand.currentPrice) * 100).toFixed(1)}%)
+
+Your targetPrice MUST sit inside [Low, High]. Anchor base case near the Base price; bull/bear scenarios at High/Low. Justify in rationale by referencing the σ√T math AND specific drift components above (e.g., "20-day momentum +X%, RSI overbought −Y%, foreign net buy +Z%"). The band is data — explain how your call sits relative to it.`
+    : '';
+
+  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}${fundContext}${srContext}${evidenceContext}
+Provide 4 fundamental metrics, 3 scenarios(sum=100, prices anchored to band Low/Base/High above), sentiment (derive newsRatio from headlines if provided), institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. targetPrice MUST be within the evidence band shown above. ${langInstruction} JSON only.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt);
 
@@ -1273,6 +1299,52 @@ Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment (derive newsRatio
   // 確保 currentPrice 存在（fallback to live price）
   if (!validatedResponse.currentPrice && livePrice) {
     validatedResponse.currentPrice = livePrice;
+  }
+
+  // ═══ 用 evidence band 做最終 clamp（targetPrice、scenarios、timeStop）═══
+  // 沒有 reference 強制覆寫時才做 — params.reference 是用戶建議流程帶進來的固定價，要尊重
+  if (evidenceBand && !params.reference) {
+    const cp = validatedResponse.currentPrice || evidenceBand.currentPrice;
+    const lo = evidenceBand.lowTargetPrice;
+    const hi = evidenceBand.highTargetPrice;
+
+    // targetPrice：超出 band 拉回邊界
+    const aiTarget = validatedResponse.targetPrice || 0;
+    if (aiTarget < lo || aiTarget > hi || aiTarget <= 0) {
+      const clamped = aiTarget <= 0 ? evidenceBand.baseTargetPrice : Math.max(lo, Math.min(hi, aiTarget));
+      console.warn(`[Evidence Clamp] ${params.ticker} target: NT$${aiTarget.toFixed(2)} → NT$${clamped.toFixed(2)} (band [${lo.toFixed(2)}, ${hi.toFixed(2)}])`);
+      validatedResponse.targetPrice = clamped;
+    }
+
+    // timeStop bug 修復：AI 有時把它當日期回（例如 20270426），數值 > currentPrice × 2 即異常
+    const ts = validatedResponse.timeStop || 0;
+    if (ts > cp * 2 || ts <= 0) {
+      const fallbackStop = cp * (1 + Math.max(-evidenceBand.oneSigmaPct, -30) / 100);
+      console.warn(`[Evidence Clamp] ${params.ticker} timeStop suspicious (${ts}) → NT$${fallbackStop.toFixed(2)}`);
+      validatedResponse.timeStop = fallbackStop;
+    } else if (ts > cp) {
+      // timeStop 應 < currentPrice（停損點），若 > 視為錯方向
+      const fallbackStop = cp * (1 - evidenceBand.oneSigmaPct / 100);
+      console.warn(`[Evidence Clamp] ${params.ticker} timeStop above current → NT$${fallbackStop.toFixed(2)}`);
+      validatedResponse.timeStop = fallbackStop;
+    }
+
+    // scenarios：bull/base/bear 鎖到 band
+    if (validatedResponse.scenarios) {
+      const s = validatedResponse.scenarios;
+      if (s.bull?.targetPrice && (s.bull.targetPrice < cp || s.bull.targetPrice > hi)) {
+        s.bull.targetPrice = hi;
+      }
+      if (s.base?.targetPrice && (s.base.targetPrice < lo || s.base.targetPrice > hi)) {
+        s.base.targetPrice = evidenceBand.baseTargetPrice;
+      }
+      if (s.bear?.targetPrice && (s.bear.targetPrice > cp || s.bear.targetPrice < lo)) {
+        s.bear.targetPrice = lo;
+      }
+    }
+
+    // 把 evidence band 暴露在 response，前端可讀（用於圖表 / 解釋區塊）
+    validatedResponse.evidenceBand = evidenceBand;
   }
 
   // 覆寫公司名為 Yahoo 真實值（避免 AI 幻覺）
