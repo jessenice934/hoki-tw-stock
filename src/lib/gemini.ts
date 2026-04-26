@@ -191,6 +191,10 @@ const VOLATILITY_GUARD = {
   '2w': { max: 10, stopLossMax: -10 },
   '3w': { max: 12, stopLossMax: -12 },
   '1m': { max: 15, stopLossMax: -15 },
+  '2m': { max: 20, stopLossMax: -18 },
+  '3m': { max: 25, stopLossMax: -20 },
+  '6m': { max: 40, stopLossMax: -25 },
+  '1y': { max: 60, stopLossMax: -30 },
 };
 
 const VOLATILITY_GUARD_PROMPT = `VOLATILITY GUARD REQUIREMENTS:
@@ -335,22 +339,52 @@ function repairJson(text: string): any {
 // 階段 C-2: 數學鉗制 (Mathematical Clamping)
 // getLimitMultiplier 階梯函數
 // ============================================================
+// 將使用者輸入的時間字串正規化為標準 key（例：「1年」→ '1y'，「3個月」→ '3m'）
+function normalizeTimeframe(tf: string): string {
+  const s = tf.trim().toLowerCase();
+  if (['1w', '2w', '3w', '1m', '2m', '3m', '6m', '1y'].includes(s)) return s;
+  // 年
+  if (/^1\s*[y年]/.test(s)) return '1y';
+  // 月
+  const mMatch = s.match(/^(\d+)\s*[m月個]/);
+  if (mMatch) {
+    const n = parseInt(mMatch[1]);
+    if (n >= 6) return '6m';
+    if (n >= 3) return '3m';
+    if (n >= 2) return '2m';
+    return '1m';
+  }
+  // 週
+  const wMatch = s.match(/^(\d+)\s*[w週]/);
+  if (wMatch) {
+    const n = parseInt(wMatch[1]);
+    if (n >= 4) return '1m';
+    if (n >= 3) return '3w';
+    if (n >= 2) return '2w';
+    return '1w';
+  }
+  return s;
+}
+
 function getLimitMultiplier(duration: string): number {
-  // 跟 VOLATILITY_GUARD 保持同步（2026-04-23 校準：1w 5→8, 2w 8→10, 3w 10→12, 1m 12→15）
   const multipliers: Record<string, number> = {
     '1w': 1.08,
     '2w': 1.10,
     '3w': 1.12,
     '1m': 1.15,
+    '2m': 1.20,
+    '3m': 1.25,
+    '6m': 1.40,
+    '1y': 1.60,
   };
-  return multipliers[duration] || 1.15;
+  return multipliers[normalizeTimeframe(duration)] || 1.15;
 }
 
 // ============================================================
 // 階段 C: 後處理過濾器 (Post-processing Filters)
 // ============================================================
 function validateAndClampRecommendations(response: any, duration: string, sectorType?: string, lang?: string): any {
-  const durationKey = duration as keyof typeof VOLATILITY_GUARD;
+  const durationKey = normalizeTimeframe(duration) as keyof typeof VOLATILITY_GUARD;
   const volatilityConfig = VOLATILITY_GUARD[durationKey] || VOLATILITY_GUARD['1m'];
   const maxStopLossPercent = volatilityConfig.stopLossMax;
   const limitMultiplier = getLimitMultiplier(duration);
@@ -460,7 +494,7 @@ function validateAndClampRecommendations(response: any, duration: string, sector
 }
 
 function validateAndClampPrediction(response: any, duration: string, lang?: string): any {
-  const durationKey = duration as keyof typeof VOLATILITY_GUARD;
+  const durationKey = normalizeTimeframe(duration) as keyof typeof VOLATILITY_GUARD;
   const volatilityConfig = VOLATILITY_GUARD[durationKey] || VOLATILITY_GUARD['1m'];
   const maxStopLossPercent = volatilityConfig.stopLossMax;
   const limitMultiplier = getLimitMultiplier(duration);
@@ -606,20 +640,24 @@ function validateAndClampPrediction(response: any, duration: string, lang?: stri
 // 階段 A: 數據獲取與提示詞工程
 // ============================================================
 export const generateInvestmentAdvice = async (params: InvestmentParams) => {
-  const cacheKey = getCacheKey('advice', params.type, params.duration, params.lang || 'en');
+  const normDur = normalizeTimeframe(params.duration);
+  const cacheKey = getCacheKey('advice', params.type, normDur, params.lang || 'en');
   const cached = getCachedResult(cacheKey);
   // 確保快取中的 persona 是新版 ID 格式（value/trader/trump 等），否則重新生成
   if (cached && cached.recommendations?.[0]?.personaAnalysis?.some((p: any) => p.id === 'value' || p.id === 'trump')) return cached;
 
   const typeName = typeMap[params.type] || params.type;
-  // 跟 VOLATILITY_GUARD 保持同步（2026-04-23 校準）
   const volatilityThresholds: Record<string, number> = {
     '1w': 8,
     '2w': 10,
     '3w': 12,
     '1m': 15,
+    '2m': 20,
+    '3m': 25,
+    '6m': 40,
+    '1y': 60,
   };
-  const volatilityGuard = volatilityThresholds[params.duration] || 12;
+  const volatilityGuard = volatilityThresholds[normDur] ?? 15;
 
   const systemPrompt = `You are an expert Taiwan stock market (TWSE / TPEX) information aggregator that channels the wisdom of 10 legendary investors:
 1. Warren Buffett (Value Investing)
@@ -752,7 +790,7 @@ MANDATORY REQUIREMENTS:
   const rawText = await callGeminiAPI(systemPrompt, userPrompt);
 
   const parsedResponse = repairJson(rawText);
-  const validatedResponse = validateAndClampRecommendations(parsedResponse, params.duration, params.type, params.lang);
+  const validatedResponse = validateAndClampRecommendations(parsedResponse, normDur, params.type, params.lang);
 
   // ═══ 18 維度整合計分：12 量化訊號 + 6 風格觀點（persona now included in main prompt） ═══
   if (Array.isArray(validatedResponse.recommendations)) {
@@ -781,7 +819,8 @@ MANDATORY REQUIREMENTS:
 };
 
 export const analyzeSingleStock = async (params: SingleStockParams) => {
-  const cacheKey = getCacheKey('prediction', params.ticker.toUpperCase(), params.timeframe, params.lang || 'en');
+  const normTf = normalizeTimeframe(params.timeframe);
+  const cacheKey = getCacheKey('prediction', params.ticker.toUpperCase(), normTf, params.lang || 'en');
   const cached = getCachedResult(cacheKey);
   if (cached && cached.personaAnalysis?.some((p: any) => p.id === 'value' || p.id === 'trump')) {
     if (!cached.name) {
@@ -794,14 +833,17 @@ export const analyzeSingleStock = async (params: SingleStockParams) => {
     return cached;
   }
 
-  // 跟 VOLATILITY_GUARD 保持同步（2026-04-23 校準）
   const volatilityThresholds: Record<string, number> = {
     '1w': 8,
     '2w': 10,
     '3w': 12,
     '1m': 15,
+    '2m': 20,
+    '3m': 25,
+    '6m': 40,
+    '1y': 60,
   };
-  const volatilityGuard = volatilityThresholds[params.timeframe] || 12;
+  const volatilityGuard = volatilityThresholds[normTf] ?? 15;
 
   // ── 精簡版 prompt：AI 只負責文字分析，不再生成趨勢線 ──
   const systemPrompt = `Expert TAIWAN STOCK MARKET (TWSE/TPEX) analyst. Tickers are 4-digit numeric codes (e.g., 2330=TSMC 台積電). Prices are in TWD. Reference 加權指數 (TAIEX) as benchmark. Provide fundamental analysis, sentiment, catalysts, scenarios and key events. Do NOT generate predictionTrend (chart data generated locally). scenarios probabilities MUST sum to 100.
@@ -843,13 +885,13 @@ Return ONLY valid JSON:
     referenceConstraint = `USE EXACT: currentPrice=${ref.currentPrice.toFixed(2)}, targetPrice=${ref.targetPrice.toFixed(2)}, timeStop=${ref.stopLoss.toFixed(2)}.`;
   }
 
-  const userPrompt = `${params.ticker.toUpperCase()} analysis, ${params.timeframe}, today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}
-Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment, institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. Max gain: ${volatilityGuard}% for this timeframe. ${langInstruction} JSON only.`;
+  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}
+Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment, institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. Max gain: ${volatilityGuard}% for ${normTf} timeframe (longer timeframe = higher allowed gain, reflect the actual horizon in targetPrice). ${langInstruction} JSON only.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt);
 
   const parsedResponse = repairJson(rawText);
-  const validatedResponse = validateAndClampPrediction(parsedResponse, params.timeframe, params.lang);
+  const validatedResponse = validateAndClampPrediction(parsedResponse, normTf, params.lang);
 
   // 強制覆蓋為參考數據的精確價格（防止 AI 偏離）
   if (params.reference) {
