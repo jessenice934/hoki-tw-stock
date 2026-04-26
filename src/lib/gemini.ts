@@ -206,14 +206,12 @@ const VOLATILITY_GUARD_PROMPT = `VOLATILITY GUARD REQUIREMENTS:
 - Consistency check: All stocks analyzed in the same session should use identical volatility thresholds
 - Cross-reference all prices: currentPrice + (currentPrice × maxGain%) = capped targetPrice`;
 
-const SIGNAL_ENFORCEMENT_PROMPT = `SIGNAL SCORING ENFORCEMENT:
-- At least 8 out of 12 quantitative signals must score positively (score >= 0.6) for ANY recommendation
-- This is a STRICT THRESHOLD for the 12 quantitative signals
-- 6 additional style-based scoring dimensions will be applied separately in post-processing
-- Combined 18-dimension score (12 quant + 6 style) requires 12+ positive for final inclusion
-- REPEAT: Only recommend stocks where 8+ quantitative signals are positive
-- Do not make exceptions or override this rule
-- Apply this rule to EVERY stock - NO EXCEPTIONS`;
+const SIGNAL_ENFORCEMENT_PROMPT = `SIGNAL SCORING NOTES:
+- Backend computes the 12 quantitative signals from real market data (price, RSI, MACD, institutional flow, fundamentals from FinMind) and OVERWRITES whatever you return.
+- Do NOT fabricate signals to meet a threshold — your signal values are discarded.
+- Focus your reasoning on: persona fit, sector category, price targets, and qualitative narrative.
+- Of the 12 signals, 9 are measurable today; 3 (Short Interest, ROE, Insider Buy/Sell) are pending data sources and will be marked Neutral by backend.
+- Final filter (5+ positive of 9 measurable) is applied AFTER your output, on real backend-computed signals.`;
 
 const DETERMINISTIC_PROMPT = `DETERMINISTIC REASONING PROTOCOL:
 - Evidence weight hierarchy: 財報數據 (Earnings) > 新聞事件 (News) > 市場情緒 (Sentiment)
@@ -717,18 +715,9 @@ function validateAndClampRecommendations(response: any, duration: string, sector
     });
   }
 
-  // C-3: 量化訊號門檻過濾（12 量化訊號中需 8+ positive）
+  // C-3: 不在此處過濾訊號 — AI 訊號是編造的，會在 buildQuantSignals 覆寫後再過濾
   // 注意：6 風格觀點在 persona analysis 後才整合為 18 維總分
-  const validRecommendations = filteredRecommendations.filter((rec: any) => {
-    const positiveSignals = rec.signals ? rec.signals.filter((sig: any) => sig.status === 'Positive').length : 0;
-    if (positiveSignals < 8) {
-      console.warn(
-        `[Signal Threshold] Filtering out ${rec.ticker}: only ${positiveSignals}/12 quant signals positive (need 8+)`
-      );
-      return false;
-    }
-    return true;
-  }).map((rec: any) => {
+  const validRecommendations = filteredRecommendations.map((rec: any) => {
     const currentPrice = rec.currentPrice || 0;
     const targetPrice = rec.targetPrice || 0;
     const stopLoss = rec.stopLoss || 0;
@@ -1089,12 +1078,11 @@ ${langInstruction}
 
 MANDATORY REQUIREMENTS:
 1. Use ONLY the live prices provided above as currentPrice for each recommendation.
-2. Analyze from the perspective of all 10 master investors. Cross-reference all 12 quantitative signals.
-3. ONLY recommend stocks where 8+ signals are positive (status='Positive').
-4. Apply the volatility guard STRICTLY: maximum target gain ${volatilityGuard}%.
-5. Include all 12 signals for each recommendation.
-6. Include personaAnalysis with all 6 personas for each recommendation.
-7. Return ONLY valid JSON matching the schema above. No markdown, no code fences.`;
+2. Analyze from the perspective of all 10 master investors. Focus on persona fit, sector category match, and price targets.
+3. Apply the volatility guard STRICTLY: maximum target gain ${volatilityGuard}%.
+4. Include all 12 signals for each recommendation as placeholders — backend will OVERWRITE them with real-data signals (FinMind/TWSE/RSI/MACD), so do not waste effort fabricating values.
+5. Include personaAnalysis with all 6 personas for each recommendation.
+6. Return ONLY valid JSON matching the schema above. No markdown, no code fences.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt);
 
@@ -1115,7 +1103,22 @@ MANDATORY REQUIREMENTS:
     );
   }
 
-  // ═══ 18 維度整合計分：以「真實」訊號重算 8/12 門檻 ═══
+  // ═══ 真實訊號門檻過濾：5+ Positive of 9 measurable（3 個強制 Neutral 不算） ═══
+  if (Array.isArray(validatedResponse.recommendations)) {
+    const MIN_POSITIVE = 5;
+    validatedResponse.recommendations = validatedResponse.recommendations.filter((rec: any) => {
+      const positive = rec.signals ? rec.signals.filter((s: any) => s.status === 'Positive').length : 0;
+      if (positive < MIN_POSITIVE) {
+        console.warn(
+          `[Signal Threshold] Dropping ${rec.ticker}: only ${positive}/12 real signals Positive (need ${MIN_POSITIVE}+)`,
+        );
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // ═══ 18 維度整合計分：以「真實」訊號重算 ═══
   if (Array.isArray(validatedResponse.recommendations)) {
     for (const rec of validatedResponse.recommendations) {
       const quantPositive = rec.signals ? rec.signals.filter((s: any) => s.status === 'Positive').length : 0;
