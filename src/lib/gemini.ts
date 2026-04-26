@@ -1,5 +1,5 @@
 // Gemini calls go through /api/gemini (server-side keys, never in browser bundle)
-import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow } from './finance';
+import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals } from './finance';
 
 // ============================================================
 // 即時股價抓取 (Yahoo Finance via Vite proxy) + 快取
@@ -361,6 +361,86 @@ function buildInstitutionalActivity(flow: InstitutionalFlow, lang?: string) {
     : `Foreign ${fmtLots(flow.foreign.net)}, Trust ${fmtLots(flow.trust.net)}, Dealer ${fmtLots(flow.dealer.net)} lots`;
 
   return { netInstitutionalFlow, recentInsiderTrades, topHolderChange };
+}
+
+// ============================================================
+// 真實基本面資料 → fundamentalScore 結構
+// 計分原則：每個指標 0–100，越高越好。
+// ============================================================
+function buildFundamentalScore(f: Fundamentals, lang?: string) {
+  const isZh = lang === 'zh';
+  const metrics: { name: 'PE_vs_Peers' | 'Revenue_Growth' | 'FCF_Yield' | 'Debt_Ratio'; score: number; direction: 'Positive' | 'Negative' | 'Neutral'; detail: string }[] = [];
+
+  // ── P/E ─────────────────────────────────────────────
+  // Taiwan 市場合理 PE 範圍 12–20，> 30 偏高，< 8 可能基本面有風險
+  if (f.pe !== null) {
+    let score: number;
+    let direction: 'Positive' | 'Negative' | 'Neutral';
+    if (f.pe < 8)        { score = 55; direction = 'Neutral';  }
+    else if (f.pe < 12)  { score = 80; direction = 'Positive'; }
+    else if (f.pe < 18)  { score = 70; direction = 'Positive'; }
+    else if (f.pe < 25)  { score = 55; direction = 'Neutral';  }
+    else if (f.pe < 35)  { score = 35; direction = 'Negative'; }
+    else                 { score = 20; direction = 'Negative'; }
+    const detail = isZh
+      ? `本益比 ${f.pe.toFixed(1)} 倍${f.asOfPER ? `（${f.asOfPER}）` : ''}`
+      : `P/E ${f.pe.toFixed(1)}x${f.asOfPER ? ` (as of ${f.asOfPER})` : ''}`;
+    metrics.push({ name: 'PE_vs_Peers', score, direction, detail });
+  }
+
+  // ── Revenue YoY ────────────────────────────────────
+  if (f.revenueYoY !== null) {
+    let score: number;
+    let direction: 'Positive' | 'Negative' | 'Neutral';
+    if (f.revenueYoY >= 30)       { score = 90; direction = 'Positive'; }
+    else if (f.revenueYoY >= 15)  { score = 75; direction = 'Positive'; }
+    else if (f.revenueYoY >= 5)   { score = 60; direction = 'Positive'; }
+    else if (f.revenueYoY >= 0)   { score = 50; direction = 'Neutral';  }
+    else if (f.revenueYoY >= -10) { score = 35; direction = 'Negative'; }
+    else                          { score = 18; direction = 'Negative'; }
+    const sign = f.revenueYoY >= 0 ? '+' : '';
+    const detail = isZh
+      ? `${f.revenueDate ?? ''} 月營收 YoY ${sign}${f.revenueYoY.toFixed(1)}%`
+      : `${f.revenueDate ?? 'Latest'} revenue YoY ${sign}${f.revenueYoY.toFixed(1)}%`;
+    metrics.push({ name: 'Revenue_Growth', score, direction, detail });
+  }
+
+  // ── 殖利率（用於替代 FCF Yield）────────────────────
+  // Taiwan 公司高殖利率代表有穩定現金回饋（接近 FCF 視角）
+  if (f.divYield !== null) {
+    let score: number;
+    let direction: 'Positive' | 'Negative' | 'Neutral';
+    if (f.divYield >= 5)        { score = 85; direction = 'Positive'; }
+    else if (f.divYield >= 3)   { score = 70; direction = 'Positive'; }
+    else if (f.divYield >= 1.5) { score = 55; direction = 'Neutral';  }
+    else if (f.divYield > 0)    { score = 40; direction = 'Neutral';  }
+    else                        { score = 30; direction = 'Negative'; }
+    const detail = isZh
+      ? `現金殖利率 ${f.divYield.toFixed(2)}%（以殖利率代理現金流品質）`
+      : `Dividend yield ${f.divYield.toFixed(2)}% (proxy for cash quality)`;
+    metrics.push({ name: 'FCF_Yield', score, direction, detail });
+  }
+
+  // ── 負債比 ─────────────────────────────────────────
+  if (f.debtRatio !== null) {
+    let score: number;
+    let direction: 'Positive' | 'Negative' | 'Neutral';
+    if (f.debtRatio < 30)       { score = 85; direction = 'Positive'; }
+    else if (f.debtRatio < 50)  { score = 70; direction = 'Positive'; }
+    else if (f.debtRatio < 65)  { score = 50; direction = 'Neutral';  }
+    else if (f.debtRatio < 80)  { score = 30; direction = 'Negative'; }
+    else                        { score = 15; direction = 'Negative'; }
+    const detail = isZh
+      ? `負債比 ${f.debtRatio.toFixed(1)}%${f.asOfBS ? `（${f.asOfBS}）` : ''}`
+      : `Debt ratio ${f.debtRatio.toFixed(1)}%${f.asOfBS ? ` (as of ${f.asOfBS})` : ''}`;
+    metrics.push({ name: 'Debt_Ratio', score, direction, detail });
+  }
+
+  if (metrics.length === 0) {
+    return { overall: 50, metrics: [] };
+  }
+  const overall = Math.round(metrics.reduce((s, m) => s + m.score, 0) / metrics.length);
+  return { overall, metrics };
 }
 
 // ============================================================
@@ -896,8 +976,11 @@ Return ONLY valid JSON:
     fetchTickerName(params.ticker),
     fetchInstitutionalFlow(params.ticker, 5),
   ]);
-  // 抓最新新聞標題（用中文名提升搜尋精準度）
-  const newsHeadlines = await fetchNewsHeadlines(params.ticker, authoritativeName);
+  // 抓最新新聞標題（用中文名提升搜尋精準度）+ 真實基本面
+  const [newsHeadlines, fundamentals] = await Promise.all([
+    fetchNewsHeadlines(params.ticker, authoritativeName),
+    fetchFundamentals(params.ticker),
+  ]);
   const priceInfo = livePrice
     ? `LIVE MARKET PRICE for ${params.ticker.toUpperCase()}: NT$${livePrice.toFixed(2)} (use this as currentPrice, in TWD)`
     : `Unable to fetch live price for ${params.ticker.toUpperCase()}. Use your best knowledge for currentPrice.`;
@@ -924,7 +1007,11 @@ Return ONLY valid JSON:
     ? `\n\nINSTITUTIONAL FLOW (real TWSE data, last ${instFlow.days} trading days through ${instFlow.latestDate}):\n- 外資 (Foreign): ${Math.round(instFlow.foreign.net / 1000).toLocaleString()} 張 net\n- 投信 (Trust): ${Math.round(instFlow.trust.net / 1000).toLocaleString()} 張 net\n- 自營商 (Dealer): ${Math.round(instFlow.dealer.net / 1000).toLocaleString()} 張 net\n- 三大法人合計 (Total): ${instFlow.totalNetLots.toLocaleString()} 張 (${instFlow.totalNetLots >= 0 ? 'net buying' : 'net selling'})\nUse this REAL data to inform your rationale, scenarios and direction — do NOT contradict it.`
     : '';
 
-  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}
+  const fundContext = fundamentals
+    ? `\n\nREAL FUNDAMENTALS (FinMind authoritative data — use these exact numbers, do NOT make up valuations):\n${fundamentals.pe !== null ? `- P/E ratio: ${fundamentals.pe.toFixed(2)}x${fundamentals.asOfPER ? ` (as of ${fundamentals.asOfPER})` : ''}\n` : ''}${fundamentals.pb !== null ? `- P/B ratio: ${fundamentals.pb.toFixed(2)}x\n` : ''}${fundamentals.divYield !== null ? `- Dividend yield: ${fundamentals.divYield.toFixed(2)}%\n` : ''}${fundamentals.revenueYoY !== null ? `- Latest monthly revenue YoY growth: ${fundamentals.revenueYoY >= 0 ? '+' : ''}${fundamentals.revenueYoY.toFixed(2)}%${fundamentals.revenueDate ? ` (${fundamentals.revenueDate})` : ''}\n` : ''}${fundamentals.debtRatio !== null ? `- Debt ratio (Total Liabilities / Total Assets): ${fundamentals.debtRatio.toFixed(1)}%${fundamentals.asOfBS ? ` (as of ${fundamentals.asOfBS})` : ''}\n` : ''}Reference these numbers in rationale, valuation discussion, and bear case. The fundamentalScore.metrics array will be auto-overridden with these numbers — your job is to weave them into narrative.`
+    : '';
+
+  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}${fundContext}
 Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment (derive newsRatio from the actual headlines above if provided), institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. Max gain: ${volatilityGuard}% for ${normTf} timeframe (longer timeframe = higher allowed gain, reflect the actual horizon in targetPrice). ${langInstruction} JSON only.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt);
@@ -942,6 +1029,11 @@ Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment (derive newsRatio
   // 用真實三大法人資料覆蓋 AI 編造的 institutionalActivity
   if (instFlow) {
     validatedResponse.institutionalActivity = buildInstitutionalActivity(instFlow, params.lang);
+  }
+
+  // 用真實基本面資料覆蓋 AI 編造的 fundamentalScore
+  if (fundamentals) {
+    validatedResponse.fundamentalScore = buildFundamentalScore(fundamentals, params.lang);
   }
 
   // 確保 currentPrice 存在（fallback to live price）

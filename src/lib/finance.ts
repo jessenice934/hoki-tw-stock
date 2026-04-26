@@ -360,6 +360,140 @@ export async function fetchInstitutionalFlow(ticker: string, days = 5): Promise<
 }
 
 // ────────────────────────────────────────────────────────────
+// Fundamentals (FinMind PER + MonthRevenue + BalanceSheet)
+// ────────────────────────────────────────────────────────────
+
+export interface Fundamentals {
+  pe: number | null;            // 本益比（最近交易日）
+  pb: number | null;            // 股價淨值比
+  divYield: number | null;      // 殖利率 %
+  asOfPER: string | null;       // PE 資料日 YYYY-MM-DD
+  revenueYoY: number | null;    // 最新月營收 YoY %
+  revenueDate: string | null;   // YYYY-MM
+  debtRatio: number | null;     // 負債比 = 總負債/總資產 %
+  asOfBS: string | null;        // 資產負債表日 YYYY-MM-DD
+}
+
+const fundCache: Record<string, { data: Fundamentals | null; timestamp: number }> = {};
+const FUND_CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
+
+export async function fetchFundamentals(ticker: string): Promise<Fundamentals | null> {
+  const numeric = ticker.replace(/[^0-9]/g, '');
+  if (numeric.length < 4) return null;
+
+  const cached = fundCache[numeric];
+  if (cached && Date.now() - cached.timestamp < FUND_CACHE_TTL) return cached.data;
+
+  // 回看不同期間取得三筆資料
+  const today = new Date();
+  const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
+
+  // PER: 最近 14 天找最新一筆
+  const perStart = new Date(today);
+  perStart.setDate(perStart.getDate() - 14);
+
+  // 月營收: 最近 14 個月（取最新一筆 YoY）
+  const revStart = new Date(today);
+  revStart.setMonth(revStart.getMonth() - 14);
+
+  // 資產負債表: 最近 6 個月（季報）
+  const bsStart = new Date(today);
+  bsStart.setMonth(bsStart.getMonth() - 6);
+
+  try {
+    const [perResp, revResp, bsResp] = await Promise.all([
+      fetch(`/api/finmind?dataset=TaiwanStockPER&data_id=${numeric}&start_date=${fmtDate(perStart)}&end_date=${fmtDate(today)}`),
+      fetch(`/api/finmind?dataset=TaiwanStockMonthRevenue&data_id=${numeric}&start_date=${fmtDate(revStart)}&end_date=${fmtDate(today)}`),
+      fetch(`/api/finmind?dataset=TaiwanStockBalanceSheet&data_id=${numeric}&start_date=${fmtDate(bsStart)}&end_date=${fmtDate(today)}`),
+    ]);
+
+    let pe: number | null = null;
+    let pb: number | null = null;
+    let divYield: number | null = null;
+    let asOfPER: string | null = null;
+    if (perResp.ok) {
+      const j = await perResp.json();
+      const arr = Array.isArray(j?.data) ? j.data : [];
+      if (arr.length > 0) {
+        const sorted = arr.slice().sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+        const latest = sorted[sorted.length - 1];
+        const peRaw = latest?.PER ?? latest?.pe_ratio ?? latest?.per;
+        const pbRaw = latest?.PBR ?? latest?.pb_ratio ?? latest?.pbr;
+        const dyRaw = latest?.dividend_yield ?? latest?.dividendYield;
+        pe = typeof peRaw === 'number' && peRaw > 0 ? peRaw : null;
+        pb = typeof pbRaw === 'number' && pbRaw > 0 ? pbRaw : null;
+        divYield = typeof dyRaw === 'number' ? dyRaw : null;
+        asOfPER = latest?.date ?? null;
+      }
+    }
+
+    let revenueYoY: number | null = null;
+    let revenueDate: string | null = null;
+    if (revResp.ok) {
+      const j = await revResp.json();
+      const arr = Array.isArray(j?.data) ? j.data : [];
+      if (arr.length > 0) {
+        const sorted = arr.slice().sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+        const latest = sorted[sorted.length - 1];
+        const y: number | undefined = latest?.revenue_year;
+        const m: number | undefined = latest?.revenue_month;
+        const latestRev: number = typeof latest?.revenue === 'number' ? latest.revenue : 0;
+        if (y && m && latestRev > 0) {
+          // 找去年同月（revenue_year = y-1, revenue_month = m）
+          const yoyRow = sorted.find((r: any) => r.revenue_year === y - 1 && r.revenue_month === m);
+          if (yoyRow && typeof yoyRow.revenue === 'number' && yoyRow.revenue > 0) {
+            revenueYoY = ((latestRev - yoyRow.revenue) / yoyRow.revenue) * 100;
+          }
+          revenueDate = `${y}-${String(m).padStart(2, '0')}`;
+        }
+      }
+    }
+
+    let debtRatio: number | null = null;
+    let asOfBS: string | null = null;
+    if (bsResp.ok) {
+      const j = await bsResp.json();
+      const arr = Array.isArray(j?.data) ? j.data : [];
+      if (arr.length > 0) {
+        // 取最新一個季度日期
+        const latestDate = arr.map((r: any) => r.date).sort().pop();
+        const sameDate = arr.filter((r: any) => r.date === latestDate);
+        let totalAssets = 0;
+        let totalLiab = 0;
+        for (const row of sameDate) {
+          const t = String(row.type ?? '');
+          const v = typeof row.value === 'number' ? row.value : 0;
+          if (t === 'TotalAssets' || t === 'Assets') totalAssets = v;
+          else if (t === 'TotalLiabilities' || t === 'Liabilities') totalLiab = v;
+        }
+        if (totalAssets > 0 && totalLiab > 0) {
+          debtRatio = (totalLiab / totalAssets) * 100;
+          asOfBS = latestDate;
+        }
+      }
+    }
+
+    const result: Fundamentals = {
+      pe, pb, divYield, asOfPER,
+      revenueYoY, revenueDate,
+      debtRatio, asOfBS,
+    };
+
+    // 全部 null 視為無資料
+    if (pe === null && revenueYoY === null && debtRatio === null) {
+      fundCache[numeric] = { data: null, timestamp: Date.now() };
+      return null;
+    }
+
+    fundCache[numeric] = { data: result, timestamp: Date.now() };
+    return result;
+  } catch {
+    fundCache[numeric] = { data: null, timestamp: Date.now() };
+    return null;
+  }
+}
+
+// ────────────────────────────────────────────────────────────
 // News Headlines (Google News RSS via /api/news proxy)
 // ────────────────────────────────────────────────────────────
 
