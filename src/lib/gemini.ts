@@ -1,5 +1,5 @@
 // Gemini calls go through /api/gemini (server-side keys, never in browser bundle)
-import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals } from './finance';
+import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals, fetchHistoricalPrices, computeSupportResistance } from './finance';
 
 // ============================================================
 // 即時股價抓取 (Yahoo Finance via Vite proxy) + 快取
@@ -976,11 +976,15 @@ Return ONLY valid JSON:
     fetchTickerName(params.ticker),
     fetchInstitutionalFlow(params.ticker, 5),
   ]);
-  // 抓最新新聞標題（用中文名提升搜尋精準度）+ 真實基本面
-  const [newsHeadlines, fundamentals] = await Promise.all([
+  // 抓最新新聞標題（用中文名提升搜尋精準度）+ 真實基本面 + 歷史價算 S/R
+  const [newsHeadlines, fundamentals, historicalPrices] = await Promise.all([
     fetchNewsHeadlines(params.ticker, authoritativeName),
     fetchFundamentals(params.ticker),
+    fetchHistoricalPrices(params.ticker, 90).catch(() => []),
   ]);
+  const srLevels = (livePrice && historicalPrices.length >= 10)
+    ? computeSupportResistance(historicalPrices, livePrice, 90)
+    : { supportLevels: [], resistanceLevels: [] };
   const priceInfo = livePrice
     ? `LIVE MARKET PRICE for ${params.ticker.toUpperCase()}: NT$${livePrice.toFixed(2)} (use this as currentPrice, in TWD)`
     : `Unable to fetch live price for ${params.ticker.toUpperCase()}. Use your best knowledge for currentPrice.`;
@@ -1011,7 +1015,11 @@ Return ONLY valid JSON:
     ? `\n\nREAL FUNDAMENTALS (FinMind authoritative data — use these exact numbers, do NOT make up valuations):\n${fundamentals.pe !== null ? `- P/E ratio: ${fundamentals.pe.toFixed(2)}x${fundamentals.asOfPER ? ` (as of ${fundamentals.asOfPER})` : ''}\n` : ''}${fundamentals.pb !== null ? `- P/B ratio: ${fundamentals.pb.toFixed(2)}x\n` : ''}${fundamentals.divYield !== null ? `- Dividend yield: ${fundamentals.divYield.toFixed(2)}%\n` : ''}${fundamentals.revenueYoY !== null ? `- Latest monthly revenue YoY growth: ${fundamentals.revenueYoY >= 0 ? '+' : ''}${fundamentals.revenueYoY.toFixed(2)}%${fundamentals.revenueDate ? ` (${fundamentals.revenueDate})` : ''}\n` : ''}${fundamentals.debtRatio !== null ? `- Debt ratio (Total Liabilities / Total Assets): ${fundamentals.debtRatio.toFixed(1)}%${fundamentals.asOfBS ? ` (as of ${fundamentals.asOfBS})` : ''}\n` : ''}Reference these numbers in rationale, valuation discussion, and bear case. The fundamentalScore.metrics array will be auto-overridden with these numbers — your job is to weave them into narrative.`
     : '';
 
-  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}${fundContext}
+  const srContext = (srLevels.supportLevels.length > 0 || srLevels.resistanceLevels.length > 0)
+    ? `\n\nREAL TECHNICAL LEVELS (computed from last 90 trading days of TWSE OHLC via swing-pivot clustering — these are observed, NOT fabricated):\n${srLevels.supportLevels.length > 0 ? `Support levels (below current NT$${livePrice?.toFixed(2)}): ${srLevels.supportLevels.map(s => `${s.label}=NT$${s.price.toFixed(2)} (${s.touches} touches)`).join(', ')}\n` : ''}${srLevels.resistanceLevels.length > 0 ? `Resistance levels (above current): ${srLevels.resistanceLevels.map(r => `${r.label}=NT$${r.price.toFixed(2)} (${r.touches} touches)`).join(', ')}\n` : ''}The technicals.supportLevels / resistanceLevels arrays will be auto-overridden with these — your role is to discuss in rationale how price action interacts with these specific levels.`
+    : '';
+
+  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}${fundContext}${srContext}
 Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment (derive newsRatio from the actual headlines above if provided), institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. Max gain: ${volatilityGuard}% for ${normTf} timeframe (longer timeframe = higher allowed gain, reflect the actual horizon in targetPrice). ${langInstruction} JSON only.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt);
@@ -1034,6 +1042,14 @@ Provide 4 fundamental metrics, 3 scenarios(sum=100), sentiment (derive newsRatio
   // 用真實基本面資料覆蓋 AI 編造的 fundamentalScore
   if (fundamentals) {
     validatedResponse.fundamentalScore = buildFundamentalScore(fundamentals, params.lang);
+  }
+
+  // 用 OHLC swing-pivot 計算結果覆蓋 AI 編造的支撐／壓力位
+  if (srLevels.supportLevels.length > 0 || srLevels.resistanceLevels.length > 0) {
+    validatedResponse.technicals = {
+      supportLevels: srLevels.supportLevels.map(s => ({ price: s.price, label: s.label })),
+      resistanceLevels: srLevels.resistanceLevels.map(r => ({ price: r.price, label: r.label })),
+    };
   }
 
   // 確保 currentPrice 存在（fallback to live price）

@@ -494,6 +494,122 @@ export async function fetchFundamentals(ticker: string): Promise<Fundamentals | 
 }
 
 // ────────────────────────────────────────────────────────────
+// Support / Resistance — swing pivot clustering from historical prices
+// ────────────────────────────────────────────────────────────
+
+export interface SRLevel {
+  price: number;
+  label: string;   // e.g. S1/S2/S3 or R1/R2/R3
+  touches: number; // 觸及次數（同一價位被測試過幾次）
+}
+
+export interface SupportResistance {
+  supportLevels: SRLevel[];     // 低於當前價，由近到遠
+  resistanceLevels: SRLevel[];  // 高於當前價，由近到遠
+}
+
+/**
+ * 從 OHLC 歷史資料計算真實支撐／壓力。
+ *  1. N-bar pivot 偵測 swing high / low (N=3，前後各 3 根 K)
+ *  2. 將相近價位（< 2% 距離）合併，記錄 touches
+ *  3. 取距離 currentPrice ±25% 內最有相關性的 levels
+ *  4. 各取 3 個離當前價最近的支撐／壓力
+ */
+export function computeSupportResistance(
+  prices: HistoricalPrice[],
+  currentPrice: number,
+  lookback: number = 90,
+): SupportResistance {
+  if (!Array.isArray(prices) || prices.length < 10 || currentPrice <= 0) {
+    return { supportLevels: [], resistanceLevels: [] };
+  }
+
+  const window = prices.slice(-lookback);
+  const N = 3; // 前後各 3 根 K 才算 pivot
+
+  const swingHighs: number[] = [];
+  const swingLows: number[] = [];
+  for (let i = N; i < window.length - N; i++) {
+    const h = window[i].high;
+    const l = window[i].low;
+    let isHigh = true, isLow = true;
+    for (let k = 1; k <= N; k++) {
+      if (window[i - k].high >= h || window[i + k].high >= h) isHigh = false;
+      if (window[i - k].low <= l || window[i + k].low <= l) isLow = false;
+      if (!isHigh && !isLow) break;
+    }
+    if (isHigh) swingHighs.push(h);
+    if (isLow) swingLows.push(l);
+  }
+
+  // 群聚相近價位
+  const cluster = (arr: number[]): { price: number; touches: number }[] => {
+    if (arr.length === 0) return [];
+    const sorted = arr.slice().sort((a, b) => a - b);
+    const clusters: { price: number; touches: number; sum: number }[] = [];
+    for (const p of sorted) {
+      const last = clusters[clusters.length - 1];
+      if (last && Math.abs(p - last.price) / last.price < 0.02) {
+        last.touches += 1;
+        last.sum += p;
+        last.price = last.sum / last.touches;
+      } else {
+        clusters.push({ price: p, touches: 1, sum: p });
+      }
+    }
+    return clusters.map((c) => ({ price: c.price, touches: c.touches }));
+  };
+
+  const highClusters = cluster(swingHighs);
+  const lowClusters = cluster(swingLows);
+
+  // 篩選 ±25% 範圍內的 levels
+  const within = (p: number) =>
+    Math.abs(p - currentPrice) / currentPrice <= 0.25;
+
+  // 支撐：低於當前價的低點（取 swingLow 群聚 + 部分 swingHigh 用作前高轉支撐）
+  // 壓力：高於當前價（同理）
+  const allLevels = [...highClusters, ...lowClusters];
+
+  const supportsRaw = allLevels
+    .filter((c) => c.price < currentPrice && within(c.price))
+    .sort((a, b) => b.price - a.price); // 由近到遠
+  const resistancesRaw = allLevels
+    .filter((c) => c.price > currentPrice && within(c.price))
+    .sort((a, b) => a.price - b.price);
+
+  // 去重：合併鄰近群聚（< 2%）以免 S1/S2 太接近
+  const dedupe = (arr: { price: number; touches: number }[]) => {
+    const out: { price: number; touches: number }[] = [];
+    for (const c of arr) {
+      const last = out[out.length - 1];
+      if (last && Math.abs(c.price - last.price) / last.price < 0.02) {
+        // 合併到 last（同一支撐區）
+        const totalTouches = last.touches + c.touches;
+        last.price = (last.price * last.touches + c.price * c.touches) / totalTouches;
+        last.touches = totalTouches;
+      } else {
+        out.push({ ...c });
+      }
+    }
+    return out;
+  };
+
+  const supports = dedupe(supportsRaw).slice(0, 3).map((c, i) => ({
+    price: Math.round(c.price * 100) / 100,
+    label: `S${i + 1}`,
+    touches: c.touches,
+  }));
+  const resistances = dedupe(resistancesRaw).slice(0, 3).map((c, i) => ({
+    price: Math.round(c.price * 100) / 100,
+    label: `R${i + 1}`,
+    touches: c.touches,
+  }));
+
+  return { supportLevels: supports, resistanceLevels: resistances };
+}
+
+// ────────────────────────────────────────────────────────────
 // News Headlines (Google News RSS via /api/news proxy)
 // ────────────────────────────────────────────────────────────
 
