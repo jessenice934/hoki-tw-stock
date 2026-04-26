@@ -1,5 +1,5 @@
 // Gemini calls go through /api/gemini (server-side keys, never in browser bundle)
-import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals, fetchHistoricalPrices, computeSupportResistance } from './finance';
+import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals, fetchHistoricalPrices, computeSupportResistance, calculateRSI, HistoricalPrice } from './finance';
 
 // ============================================================
 // 即時股價抓取 (Yahoo Finance via Vite proxy) + 快取
@@ -441,6 +441,207 @@ function buildFundamentalScore(f: Fundamentals, lang?: string) {
   }
   const overall = Math.round(metrics.reduce((s, m) => s + m.score, 0) / metrics.length);
   return { overall, metrics };
+}
+
+// ============================================================
+// 真實 12 量化訊號計算
+// 從歷史價、三大法人、FinMind 基本面組合產生 status 為 Positive/Negative/Neutral 的訊號清單。
+// 沒有可靠資料來源的訊號（ROE/Short Interest/Insider/PEG）會回傳 Neutral
+// 並標註 "data not available"。
+// ============================================================
+type QuantSignal = { name: string; status: 'Positive' | 'Negative' | 'Neutral'; value: string };
+
+function calculateEMA(values: number[], period: number): number {
+  if (values.length < period) return values[values.length - 1] ?? 0;
+  const k = 2 / (period + 1);
+  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+async function buildQuantSignals(
+  ticker: string,
+  lang: string | undefined,
+): Promise<QuantSignal[]> {
+  const isZh = lang === 'zh';
+  const T = (zh: string, en: string) => (isZh ? zh : en);
+
+  // 並行抓三大資料源
+  const [prices, instFlow, fund] = await Promise.all([
+    fetchHistoricalPrices(ticker, 90).catch(() => [] as HistoricalPrice[]),
+    fetchInstitutionalFlow(ticker, 5).catch(() => null),
+    fetchFundamentals(ticker).catch(() => null),
+  ]);
+
+  const sigs: QuantSignal[] = [];
+
+  // ── 1. Price Momentum (20-day return) ────────────────────
+  if (prices.length >= 21) {
+    const recent = prices[prices.length - 1].close;
+    const past = prices[prices.length - 21].close;
+    const ret20 = ((recent - past) / past) * 100;
+    let status: 'Positive' | 'Negative' | 'Neutral';
+    if (ret20 >= 5) status = 'Positive';
+    else if (ret20 <= -5) status = 'Negative';
+    else status = 'Neutral';
+    const sign = ret20 >= 0 ? '+' : '';
+    sigs.push({
+      name: T('價格動能', 'Price Momentum'),
+      status,
+      value: `20D ${sign}${ret20.toFixed(1)}%`,
+    });
+  } else {
+    sigs.push({ name: T('價格動能', 'Price Momentum'), status: 'Neutral', value: T('資料不足', 'Insufficient data') });
+  }
+
+  // ── 2. RSI(14) ────────────────────────────────────────────
+  if (prices.length >= 15) {
+    const rsi = calculateRSI(prices, 14);
+    let status: 'Positive' | 'Negative' | 'Neutral';
+    if (rsi >= 70) status = 'Negative';     // 超買
+    else if (rsi <= 30) status = 'Positive'; // 超賣，逆向 = 機會
+    else if (rsi >= 50) status = 'Positive';
+    else status = 'Neutral';
+    sigs.push({ name: 'RSI', status, value: rsi.toFixed(1) });
+  } else {
+    sigs.push({ name: 'RSI', status: 'Neutral', value: T('資料不足', 'Insufficient data') });
+  }
+
+  // ── 3. MACD (12/26 EMA crossover) ────────────────────────
+  if (prices.length >= 27) {
+    const closes = prices.map((p) => p.close);
+    const ema12 = calculateEMA(closes, 12);
+    const ema26 = calculateEMA(closes, 26);
+    const macd = ema12 - ema26;
+    // signal 線取最近 9 個 macd 值平均（簡化版）
+    const macdHist: number[] = [];
+    for (let i = 26; i < closes.length; i++) {
+      const slice = closes.slice(0, i + 1);
+      macdHist.push(calculateEMA(slice, 12) - calculateEMA(slice, 26));
+    }
+    const signalLine = macdHist.slice(-9).reduce((a, b) => a + b, 0) / Math.min(9, macdHist.length);
+    let status: 'Positive' | 'Negative' | 'Neutral';
+    if (macd > signalLine && macd > 0) status = 'Positive';
+    else if (macd < signalLine && macd < 0) status = 'Negative';
+    else status = 'Neutral';
+    sigs.push({ name: 'MACD', status, value: `${macd >= 0 ? '+' : ''}${macd.toFixed(2)}` });
+  } else {
+    sigs.push({ name: 'MACD', status: 'Neutral', value: T('資料不足', 'Insufficient data') });
+  }
+
+  // ── 4. Institutional Flow (三大法人) ─────────────────────
+  if (instFlow) {
+    const lots = instFlow.totalNetLots;
+    const absAvg = Math.abs(instFlow.avgDailyNetLots);
+    let status: 'Positive' | 'Negative' | 'Neutral';
+    if (lots > 0 && absAvg > 200) status = 'Positive';
+    else if (lots < 0 && absAvg > 200) status = 'Negative';
+    else status = 'Neutral';
+    const sign = lots >= 0 ? '+' : '';
+    sigs.push({
+      name: T('三大法人', 'Institutional Flow'),
+      status,
+      value: `${sign}${lots.toLocaleString()} ${T('張', 'lots')} (${instFlow.days}D)`,
+    });
+  } else {
+    sigs.push({ name: T('三大法人', 'Institutional Flow'), status: 'Neutral', value: T('查無資料', 'No data') });
+  }
+
+  // ── 5. Short Interest (無可靠來源 → Neutral) ──────────────
+  sigs.push({
+    name: T('融券壓力', 'Short Interest'),
+    status: 'Neutral',
+    value: T('資料來源建置中', 'Data source pending'),
+  });
+
+  // ── 6. P/E Ratio ─────────────────────────────────────────
+  if (fund?.pe !== null && fund?.pe !== undefined) {
+    let status: 'Positive' | 'Negative' | 'Neutral';
+    if (fund.pe < 15) status = 'Positive';
+    else if (fund.pe < 25) status = 'Neutral';
+    else status = 'Negative';
+    sigs.push({ name: T('本益比', 'P/E Ratio'), status, value: `${fund.pe.toFixed(1)}x` });
+  } else {
+    sigs.push({ name: T('本益比', 'P/E Ratio'), status: 'Neutral', value: T('查無資料', 'No data') });
+  }
+
+  // ── 7. FCF Yield (用殖利率代理) ──────────────────────────
+  if (fund?.divYield !== null && fund?.divYield !== undefined) {
+    let status: 'Positive' | 'Negative' | 'Neutral';
+    if (fund.divYield >= 4) status = 'Positive';
+    else if (fund.divYield >= 1.5) status = 'Neutral';
+    else status = 'Negative';
+    sigs.push({
+      name: T('現金流品質（殖利率）', 'FCF Yield (Div Proxy)'),
+      status,
+      value: `${fund.divYield.toFixed(2)}%`,
+    });
+  } else {
+    sigs.push({ name: T('現金流品質', 'FCF Yield'), status: 'Neutral', value: T('查無資料', 'No data') });
+  }
+
+  // ── 8. ROE (無可靠來源 → Neutral) ────────────────────────
+  sigs.push({
+    name: T('ROE 股東權益報酬率', 'ROE'),
+    status: 'Neutral',
+    value: T('資料來源建置中', 'Data source pending'),
+  });
+
+  // ── 9. Debt-to-Equity (用負債比代理) ────────────────────
+  if (fund?.debtRatio !== null && fund?.debtRatio !== undefined) {
+    // 負債比 = L/A → D/E = L/E ≈ debtRatio / (1 - debtRatio)
+    const de = fund.debtRatio / (100 - fund.debtRatio);
+    let status: 'Positive' | 'Negative' | 'Neutral';
+    if (fund.debtRatio < 40) status = 'Positive';
+    else if (fund.debtRatio < 60) status = 'Neutral';
+    else status = 'Negative';
+    sigs.push({
+      name: T('負債比', 'Debt-to-Equity'),
+      status,
+      value: `${T('負債比', 'D/A')} ${fund.debtRatio.toFixed(1)}% (D/E ${de.toFixed(2)})`,
+    });
+  } else {
+    sigs.push({ name: T('負債比', 'Debt-to-Equity'), status: 'Neutral', value: T('查無資料', 'No data') });
+  }
+
+  // ── 10. Earnings Growth (用月營收 YoY 代理) ─────────────
+  if (fund?.revenueYoY !== null && fund?.revenueYoY !== undefined) {
+    let status: 'Positive' | 'Negative' | 'Neutral';
+    if (fund.revenueYoY >= 10) status = 'Positive';
+    else if (fund.revenueYoY >= 0) status = 'Neutral';
+    else status = 'Negative';
+    const sign = fund.revenueYoY >= 0 ? '+' : '';
+    sigs.push({
+      name: T('營收成長（YoY 代理）', 'Earnings Growth'),
+      status,
+      value: `${sign}${fund.revenueYoY.toFixed(1)}% YoY`,
+    });
+  } else {
+    sigs.push({ name: T('營收成長', 'Earnings Growth'), status: 'Neutral', value: T('查無資料', 'No data') });
+  }
+
+  // ── 11. PEG Ratio (PE / 營收成長率) ─────────────────────
+  if (fund?.pe !== null && fund?.pe !== undefined && fund?.revenueYoY !== null && fund?.revenueYoY !== undefined && fund.revenueYoY > 0) {
+    const peg = fund.pe / fund.revenueYoY;
+    let status: 'Positive' | 'Negative' | 'Neutral';
+    if (peg < 1) status = 'Positive';
+    else if (peg < 2) status = 'Neutral';
+    else status = 'Negative';
+    sigs.push({ name: 'PEG', status, value: peg.toFixed(2) });
+  } else {
+    sigs.push({ name: 'PEG', status: 'Neutral', value: T('需正向成長', 'Needs positive growth') });
+  }
+
+  // ── 12. Insider Buy/Sell (無可靠來源 → Neutral) ─────────
+  sigs.push({
+    name: T('內部人交易', 'Insider Buy/Sell'),
+    status: 'Neutral',
+    value: T('資料來源建置中', 'Data source pending'),
+  });
+
+  return sigs;
 }
 
 // ============================================================
@@ -900,7 +1101,21 @@ MANDATORY REQUIREMENTS:
   const parsedResponse = repairJson(rawText);
   const validatedResponse = validateAndClampRecommendations(parsedResponse, normDur, params.type, params.lang);
 
-  // ═══ 18 維度整合計分：12 量化訊號 + 6 風格觀點（persona now included in main prompt） ═══
+  // ═══ 用真實 12 量化訊號覆蓋 AI 編造的 signals（每檔並行） ═══
+  if (Array.isArray(validatedResponse.recommendations)) {
+    await Promise.all(
+      validatedResponse.recommendations.map(async (rec: any) => {
+        if (!rec.ticker) return;
+        try {
+          rec.signals = await buildQuantSignals(rec.ticker, params.lang);
+        } catch {
+          // 失敗則保留 AI 訊號
+        }
+      }),
+    );
+  }
+
+  // ═══ 18 維度整合計分：以「真實」訊號重算 8/12 門檻 ═══
   if (Array.isArray(validatedResponse.recommendations)) {
     for (const rec of validatedResponse.recommendations) {
       const quantPositive = rec.signals ? rec.signals.filter((s: any) => s.status === 'Positive').length : 0;
