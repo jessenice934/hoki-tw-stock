@@ -1349,6 +1349,23 @@ Provide 4 fundamental metrics, 3 scenarios(sum=100, prices anchored to band Low/
       if (s.bear?.targetPrice && (s.bear.targetPrice > cp || s.bear.targetPrice < lo)) {
         s.bear.targetPrice = lo;
       }
+
+      // 用 AI 自己給的情境機率，反算機率加權的預期價，覆蓋掉 AI 那個和情境不一致的 targetPrice。
+      // 這樣 Bullish 70% 一定會把 targetPrice 拉向 High，數學一致。
+      const bullP = s.bull?.probability || 0;
+      const baseP = s.base?.probability || 0;
+      const bearP = s.bear?.probability || 0;
+      const sumP = bullP + baseP + bearP;
+      if (sumP > 0 && s.bull?.targetPrice && s.base?.targetPrice && s.bear?.targetPrice) {
+        const weightedTarget =
+          (s.bull.targetPrice * bullP + s.base.targetPrice * baseP + s.bear.targetPrice * bearP) / sumP;
+        const oldTarget = validatedResponse.targetPrice;
+        validatedResponse.targetPrice = weightedTarget;
+        console.warn(
+          `[Evidence Weighted] ${params.ticker} target: NT$${oldTarget?.toFixed(2)} → NT$${weightedTarget.toFixed(2)} ` +
+          `(P=${bullP}/${baseP}/${bearP} × NT$${s.bull.targetPrice.toFixed(2)}/${s.base.targetPrice.toFixed(2)}/${s.bear.targetPrice.toFixed(2)})`,
+        );
+      }
     }
 
     // 把 evidence band 暴露在 response，前端可讀（用於圖表 / 解釋區塊）
