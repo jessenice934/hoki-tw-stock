@@ -935,6 +935,135 @@ function validateAndClampPrediction(response: any, duration: string, lang?: stri
 }
 
 // ============================================================
+// 嚴格審查層：20 年資歷台股經理人視角，剔除目標價與真實波動率不合理的標的
+// 唯一審查標準：sigmaMultiple = expectedReturn / (annualVol × √(T/252))
+// ============================================================
+const REVIEW_TIMEFRAME_DAYS: Record<string, number> = {
+  '1w': 5, '2w': 10, '3w': 15, '1m': 21, '2m': 42, '3m': 63, '6m': 126, '1y': 252,
+};
+
+async function strictReviewByVolatility(
+  recommendations: any[],
+  duration: string,
+  lang?: string,
+): Promise<{ kept: any[]; rejected: Array<{ ticker: string; reason: string }> }> {
+  if (!recommendations || recommendations.length === 0) {
+    return { kept: [], rejected: [] };
+  }
+
+  const T = REVIEW_TIMEFRAME_DAYS[duration] ?? 21;
+
+  // 並行抓 90 天歷史價，計算年化波動率
+  const enriched = await Promise.all(
+    recommendations.map(async (rec) => {
+      try {
+        const prices = await fetchHistoricalPrices(rec.ticker, 90);
+        if (prices.length < 30) return { rec, annualVolPct: null as number | null };
+        const slice = prices.slice(-61);
+        const logReturns: number[] = [];
+        for (let i = 1; i < slice.length; i++) {
+          if (slice[i].close > 0 && slice[i - 1].close > 0) {
+            logReturns.push(Math.log(slice[i].close / slice[i - 1].close));
+          }
+        }
+        if (logReturns.length < 20) return { rec, annualVolPct: null };
+        const mean = logReturns.reduce((s, r) => s + r, 0) / logReturns.length;
+        const variance = logReturns.reduce((s, r) => s + (r - mean) ** 2, 0) / (logReturns.length - 1);
+        const dailyVol = Math.sqrt(variance);
+        return { rec, annualVolPct: dailyVol * Math.sqrt(252) * 100 };
+      } catch {
+        return { rec, annualVolPct: null as number | null };
+      }
+    }),
+  );
+
+  const reviewTable = enriched.map(({ rec, annualVolPct }) => {
+    const cp = rec.currentPrice || 0;
+    const tp = rec.targetPrice || 0;
+    const expReturn = cp > 0 ? ((tp - cp) / cp) * 100 : 0;
+    const sigmaT = annualVolPct ? annualVolPct * Math.sqrt(T / 252) : null;
+    const sigmaMultiple = sigmaT && sigmaT > 0 ? expReturn / sigmaT : null;
+    return {
+      ticker: rec.ticker,
+      name: rec.name,
+      currentPrice: cp,
+      targetPrice: tp,
+      expectedReturnPct: Number(expReturn.toFixed(2)),
+      annualVolPct: annualVolPct !== null ? Number(annualVolPct.toFixed(1)) : null,
+      oneSigmaInTimeframePct: sigmaT !== null ? Number(sigmaT.toFixed(2)) : null,
+      sigmaMultiple: sigmaMultiple !== null ? Number(sigmaMultiple.toFixed(2)) : null,
+    };
+  });
+
+  const isZh = lang === 'zh';
+  const systemPrompt = isZh
+    ? `你是一位 20 年資歷的台股基金經理人，看過無數散戶被「看似合理」的推薦坑慘。
+你絕對不會為了湊數而保留邊緣標的，**寧缺勿濫**，給散戶推薦像給你媽推薦一樣慎重。
+
+**唯一審查標準：目標價 vs 真實波動率，在指定時間區間內是否有合理的風險報酬比？**
+
+判定方法（嚴格遵守）：
+- 我已經幫你算好 sigmaMultiple = 預期報酬 ÷ 該時間區間的 1σ
+- sigmaMultiple > 2.5 → reject（太激進，2σ 之外就是極端值，散戶不該追）
+- sigmaMultiple < 0.3 → reject（太保守，賺不到該區間的合理機會成本）
+- 0.3 ~ 2.5 → keep（風險報酬比合理）
+- annualVolPct 為 null（資料不足）→ keep（給予 benefit of doubt，不誤殺）
+
+每一檔輸出 verdict 和 reason（30 字內，繁體中文）。
+回傳 JSON 格式：
+{ "reviews": [ { "ticker": "代號", "verdict": "keep" | "reject", "reason": "理由" } ] }
+寧可錯殺，不可錯放。沒問題就回 keep，有疑慮就 reject。`
+    : `You are a 20-year veteran Taiwan stock fund manager. You've watched countless retail investors get burned by "reasonable-looking" recommendations.
+You NEVER pad the list to look productive — quality over quantity, every time.
+
+**Single criterion: target price vs realized volatility — is the risk/reward ratio reasonable within the timeframe?**
+
+Method (strict):
+- sigmaMultiple = expectedReturn ÷ (annualVol × √(T/252)) is precomputed
+- > 2.5 → reject (too aggressive, beyond 2σ is tail territory)
+- < 0.3 → reject (too conservative, no edge over the timeframe)
+- 0.3-2.5 → keep
+- annualVolPct null (insufficient data) → keep (benefit of doubt)
+
+Output verdict + reason (30 chars max) for each.
+JSON: { "reviews": [{ "ticker", "verdict": "keep"|"reject", "reason" }] }`;
+
+  const userPrompt = `Timeframe: ${duration} (${T} trading days)
+Recommendations to review:
+${JSON.stringify(reviewTable, null, 2)}
+
+Apply the criterion strictly. Return JSON only.`;
+
+  let parsed: any;
+  try {
+    const rawText = await callGeminiAPI(systemPrompt, userPrompt, {
+      temperature: 0, topP: 1, topK: 40, maxOutputTokens: 2048, responseMimeType: 'application/json',
+    });
+    parsed = repairJson(rawText);
+  } catch (err) {
+    console.warn('[Strict Review] AI call failed, keeping all recommendations:', err);
+    return { kept: recommendations, rejected: [] };
+  }
+
+  const reviews: Array<{ ticker: string; verdict: string; reason: string }> =
+    Array.isArray(parsed?.reviews) ? parsed.reviews : [];
+
+  const kept: any[] = [];
+  const rejected: Array<{ ticker: string; reason: string }> = [];
+  for (const rec of recommendations) {
+    const review = reviews.find((r) => String(r.ticker) === String(rec.ticker));
+    if (review?.verdict === 'reject') {
+      rejected.push({ ticker: rec.ticker, reason: review.reason || '不合理' });
+      console.warn(`[Strict Review] ${rec.ticker} REJECTED: ${review.reason}`);
+    } else {
+      kept.push(rec);
+    }
+  }
+
+  return { kept, rejected };
+}
+
+// ============================================================
 // 階段 A: 數據獲取與提示詞工程
 // ============================================================
 export const generateInvestmentAdvice = async (params: InvestmentParams) => {
@@ -1125,6 +1254,19 @@ MANDATORY REQUIREMENTS:
       }
       return true;
     });
+  }
+
+  // ═══ 嚴格審查：20 年台股經理人視角，剔除目標價/波動率不合理的標的 ═══
+  if (Array.isArray(validatedResponse.recommendations) && validatedResponse.recommendations.length > 0) {
+    const { kept, rejected } = await strictReviewByVolatility(
+      validatedResponse.recommendations,
+      normDur,
+      params.lang,
+    );
+    validatedResponse.recommendations = kept;
+    if (rejected.length > 0) {
+      console.warn(`[Strict Review] ${rejected.length} recs rejected:`, rejected);
+    }
   }
 
   // ═══ 18 維度整合計分：以「真實」訊號重算 ═══
