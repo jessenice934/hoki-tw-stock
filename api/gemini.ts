@@ -10,12 +10,14 @@
 // Node.js Serverless runtime — supports maxDuration for longer AI calls
 export const maxDuration = 60;
 
-const MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+// flash-lite first: no thinking mode, consistently fast.
+// flash second: only for fallback when lite fails or produces empty output.
+const MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'];
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 // Shared deadline across all retries (leave 2s buffer before Vercel's 60s hard limit).
 const TOTAL_BUDGET_MS = 58_000;
-// Max timeout for any single call (still allows generous long-response time).
-const PER_CALL_TIMEOUT_MS = 50_000;
+// Reduced from 50s → 40s so a single-call timeout still leaves room for one retry.
+const PER_CALL_TIMEOUT_MS = 40_000;
 // If a fast-fail error (overload / 503) occurs and we still have this much time, try fallback.
 const MIN_FALLBACK_BUDGET_MS = 20_000;
 
@@ -88,7 +90,10 @@ export default async function handler(
       payload.systemInstruction = { parts: [{ text: systemInstruction }] };
     }
     if (generationConfig) {
-      payload.generationConfig = generationConfig;
+      // Disable thinking for gemini-2.5-flash to prevent 50-60s timeout; lite has no thinking.
+      payload.generationConfig = model === 'gemini-2.5-flash'
+        ? { ...(generationConfig as Record<string, unknown>), thinkingConfig: { thinkingBudget: 0 } }
+        : generationConfig;
     }
 
     // Per-call timeout: min(remaining budget, PER_CALL_TIMEOUT_MS)

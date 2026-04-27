@@ -101,7 +101,7 @@ async function callGeminiAPI(
   systemInstruction: string,
   userPrompt: string,
   generationConfig: Record<string, unknown> = {
-    temperature: 0, topP: 1, topK: 40, maxOutputTokens: 32768, responseMimeType: 'application/json',
+    temperature: 0, topP: 1, topK: 40, maxOutputTokens: 8192, responseMimeType: 'application/json',
   },
 ): Promise<string> {
   const res = await fetch('/api/gemini', {
