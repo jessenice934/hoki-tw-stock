@@ -1103,14 +1103,22 @@ MANDATORY REQUIREMENTS:
     );
   }
 
-  // ═══ 真實訊號門檻過濾：5+ Positive of 9 measurable（3 個強制 Neutral 不算） ═══
+  // ═══ 真實訊號門檻過濾：排除「無資料」訊號後，有效正向 ≥ 40%（且至少 2 個）═══
+  // N/A 或「資料來源建置中」不算負向，只計真正有資料的訊號
   if (Array.isArray(validatedResponse.recommendations)) {
-    const MIN_POSITIVE = 5;
+    const MIN_RATIO = 0.4;
+    const MIN_ABSOLUTE = 2;
     validatedResponse.recommendations = validatedResponse.recommendations.filter((rec: any) => {
-      const positive = rec.signals ? rec.signals.filter((s: any) => s.status === 'Positive').length : 0;
-      if (positive < MIN_POSITIVE) {
+      if (!rec.signals) return true;
+      const measurable = rec.signals.filter(
+        (s: any) => s.value !== 'N/A' && !String(s.value ?? '').includes('建置中'),
+      );
+      const positive = measurable.filter((s: any) => s.status === 'Positive').length;
+      if (measurable.length === 0) return true; // 完全沒資料就不過濾
+      const ratio = positive / measurable.length;
+      if (positive < MIN_ABSOLUTE || ratio < MIN_RATIO) {
         console.warn(
-          `[Signal Threshold] Dropping ${rec.ticker}: only ${positive}/12 real signals Positive (need ${MIN_POSITIVE}+)`,
+          `[Signal Threshold] Dropping ${rec.ticker}: ${positive}/${measurable.length} measurable signals Positive (${(ratio * 100).toFixed(0)}%, need ≥${MIN_RATIO * 100}%)`,
         );
         return false;
       }
