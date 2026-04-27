@@ -251,7 +251,7 @@ export default function App() {
         duration: formData.duration,
         lang: i18n.language,
       });
-      setResult({ type: 'recommendation', data: advice, strategyType: formData.type, duration: formData.duration });
+      setResult({ type: 'recommendation', data: advice, params: formData });
       const task = {
         id: Date.now().toString(),
         type: 'recommendation' as const,
@@ -1037,18 +1037,20 @@ export default function App() {
                   <div className="space-y-6">
                     <ResultDisclaimerBanner />
                     <div className="glass-card p-6">
-                      <div className="flex flex-wrap items-center gap-2 mb-3">
-                        {result.strategyType && (
-                          <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
-                            {t(`form.type.${result.strategyType}`)}
-                          </span>
-                        )}
-                        {result.duration && (
-                          <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-sm font-medium">
-                            {result.duration}
-                          </span>
-                        )}
-                      </div>
+                      {(result as any).params && (
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          {(result as any).params.type && (
+                            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                              {String(t(`form.type.${(result as any).params.type}`, (result as any).params.type))}
+                            </span>
+                          )}
+                          {(result as any).params.duration && (
+                            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
+                              {String(t(`form.duration.${(result as any).params.duration}`, (result as any).params.duration))}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <h2 className="text-2xl font-bold text-slate-900 mb-4">
                         {t('ai.result.title')}
                       </h2>
