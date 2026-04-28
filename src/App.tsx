@@ -959,6 +959,7 @@ export default function App() {
                           <option value="dividend">{t('form.type.dividend')}</option>
                           <option value="aggressive">{t('form.type.aggressive')}</option>
                           <option value="etf">{t('form.type.etf')}</option>
+                          <option value="activeEtf">{t('form.type.activeEtf')}</option>
                           <option value="biotech">{t('form.type.biotech')}</option>
                           <option value="shipping">{t('form.type.shipping')}</option>
                         </select>
