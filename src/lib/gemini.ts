@@ -948,12 +948,17 @@ async function strictReviewByVolatility(
   recommendations: any[],
   duration: string,
   lang?: string,
+  categoryType?: string,
 ): Promise<{ kept: any[]; rejected: Array<{ ticker: string; reason: string }> }> {
   if (!recommendations || recommendations.length === 0) {
     return { kept: [], rejected: [] };
   }
 
   const T = REVIEW_TIMEFRAME_DAYS[duration] ?? 21;
+  // ETF 類別波動率天然較低，下限放寬到 0.15σ；上限保留 2.5σ 防止過激進
+  const isEtfCategory = categoryType === 'etf' || categoryType === 'activeEtf';
+  const sigmaLower = isEtfCategory ? 0.15 : 0.3;
+  const sigmaUpper = isEtfCategory ? 3.0 : 2.5;
 
   // 並行抓 90 天歷史價，計算年化波動率
   const enriched = await Promise.all(
@@ -1006,9 +1011,9 @@ async function strictReviewByVolatility(
 
 判定方法（嚴格遵守）：
 - 我已經幫你算好 sigmaMultiple = 預期報酬 ÷ 該時間區間的 1σ
-- sigmaMultiple > 2.5 → reject（太激進，2σ 之外就是極端值，散戶不該追）
-- sigmaMultiple < 0.3 → reject（太保守，賺不到該區間的合理機會成本）
-- 0.3 ~ 2.5 → keep（風險報酬比合理）
+- sigmaMultiple > ${sigmaUpper} → reject（太激進，超出常態波動範圍，散戶不該追）
+- sigmaMultiple < ${sigmaLower} → reject（太保守，賺不到該區間的合理機會成本）
+- ${sigmaLower} ~ ${sigmaUpper} → keep（風險報酬比合理）
 - annualVolPct 為 null（資料不足）→ keep（給予 benefit of doubt，不誤殺）
 
 每一檔輸出 verdict 和 reason（30 字內，繁體中文）。
@@ -1022,9 +1027,9 @@ You NEVER pad the list to look productive — quality over quantity, every time.
 
 Method (strict):
 - sigmaMultiple = expectedReturn ÷ (annualVol × √(T/252)) is precomputed
-- > 2.5 → reject (too aggressive, beyond 2σ is tail territory)
-- < 0.3 → reject (too conservative, no edge over the timeframe)
-- 0.3-2.5 → keep
+- > ${sigmaUpper} → reject (too aggressive, beyond normal vol range)
+- < ${sigmaLower} → reject (too conservative, no edge over the timeframe)
+- ${sigmaLower}-${sigmaUpper} → keep
 - annualVolPct null (insufficient data) → keep (benefit of doubt)
 
 Output verdict + reason (30 chars max) for each.
@@ -1183,7 +1188,7 @@ You MUST return a valid JSON object with this exact structure:
     dividend:  ['2412', '2882', '2891', '1101', '1216', '2002', '2207', '2885', '2880', '2886', '2892', '5880'], // 中華電、國泰金、中信金、台泥、統一、中鋼、和泰車、元大金、華南金、兆豐金、第一金、合庫金
     aggressive:['6488', '6669', '3008', '2615', '8069', '6446', '2603', '6770', '3035', '1590', '4966', '3443'], // 環球晶、緯穎、大立光、萬海、元太、藥華藥、長榮、力積電、智原、亞德客-KY、譜瑞-KY、創意
     etf:       ['0050', '0056', '006208', '00878', '00919', '00929', '00713', '00940', '00692', '00891', '00881', '00733'], // 被動式 ETF：台灣50、高股息、富邦台50、國泰永續高股息、群益台灣精選高息、復華台灣科技優息、元大台灣高息低波、元大台灣價值高息、富邦公司治理、中信關鍵半導體、國泰台灣5G+、富邦臺灣中小
-    activeEtf: ['00982A', '00981A', '00978A', '00984A', '00985A', '00986A', '00987A', '00988A'], // 主動式 ETF（2024 開放後新類別）— 命名規則 00XXXa，名稱由 Yahoo fetchTickerName 自動覆蓋
+    activeEtf: ['00980A', '00981A', '00982A', '00983A', '00984A', '00985A', '00986A', '00987A', '00988A', '00989A', '00990A', '00991A'], // 主動式 ETF（2024 開放後新類別，全部已透過 Yahoo Finance 驗證有資料）：野村SMART精選、統一台股增長、群益台灣優選、中信ARK創新、安聯台股成長收益、野村臺灣50增強、台新全球領先、台新台灣領先成長、統一全球創新、JP摩根美國科技領先、元大全球AI新經濟、復華台灣未來50
     biotech:   ['6446', '4174', '1707', '4729', '6472', '4116', '4119', '4108', '1789', '4736', '4163', '4147'], // 藥華藥、浩鼎、葡萄王、熱映、保瑞、明基醫、旭富、懷特、神隆、泰博、鐿鈦、中裕
     shipping:  ['2603', '2609', '2615', '2618', '2606', '5608', '2637', '2208', '2610', '2605', '2607', '5604'], // 長榮、陽明、萬海、長榮航、裕民、四維航、慧洋-KY、台船、華航、新興、榮運、中連貨
   };
@@ -1238,8 +1243,10 @@ MANDATORY REQUIREMENTS:
 
   // ═══ 真實訊號門檻過濾：排除「無資料」訊號後，有效正向 ≥ 40%（且至少 2 個）═══
   // N/A 或「資料來源建置中」不算負向，只計真正有資料的訊號
+  // ETF 類別缺基本面（P/E、營收 YoY、營業利益率等都 N/A），門檻放寬到 30% 以免全部被刷掉
   if (Array.isArray(validatedResponse.recommendations)) {
-    const MIN_RATIO = 0.4;
+    const isEtfCat = params.type === 'etf' || params.type === 'activeEtf';
+    const MIN_RATIO = isEtfCat ? 0.3 : 0.4;
     const MIN_ABSOLUTE = 2;
     validatedResponse.recommendations = validatedResponse.recommendations.filter((rec: any) => {
       if (!rec.signals) return true;
@@ -1265,6 +1272,7 @@ MANDATORY REQUIREMENTS:
       validatedResponse.recommendations,
       normDur,
       params.lang,
+      params.type,
     );
     validatedResponse.recommendations = kept;
     if (rejected.length > 0) {
