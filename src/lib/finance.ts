@@ -634,6 +634,7 @@ export interface EvidenceBand {
 }
 
 const TIMEFRAME_DAYS: Record<string, number> = {
+  '1d': 1,
   '1w': 5,
   '2w': 10,
   '3w': 15,

@@ -189,6 +189,7 @@ const VOLATILITY_GUARD = {
   // 2026-04-23 校準：原本 1w=5% 太保守，實測一週準確預測方向 88.9% 但達標率僅 33%，
   // 目標常被 cap 住。把上限放寬 60%（1w 5→8、2w 8→10、3w 10→12、1m 12→15）。
   // stopLossMax 保持不變——這是保護用戶的下限，不該跟著放寬。
+  '1d': { max: 4, stopLossMax: -4 },   // 隔天：±4% 上限，高投機性警告
   '1w': { max: 8, stopLossMax: -8 },
   '2w': { max: 10, stopLossMax: -10 },
   '3w': { max: 12, stopLossMax: -12 },
@@ -201,7 +202,7 @@ const VOLATILITY_GUARD = {
 
 const VOLATILITY_GUARD_PROMPT = `VOLATILITY GUARD REQUIREMENTS:
 - This rule applies CONSISTENTLY across all recommendations and predictions
-- Maximum allowed gain is defined by timeframe: 1w=8%, 2w=10%, 3w=12%, 1m=15%
+- Maximum allowed gain is defined by timeframe: 1d=4%, 1w=8%, 2w=10%, 3w=12%, 1m=15%
 - If projected price exceeds this, CLAMP it to the maximum allowed
 - Stop loss must be reasonable and within limits
 - Apply this rule to EVERY recommendation - NO EXCEPTIONS
@@ -651,7 +652,8 @@ async function buildQuantSignals(
 // 將使用者輸入的時間字串正規化為標準 key（例：「1年」→ '1y'，「3個月」→ '3m'）
 function normalizeTimeframe(tf: string): string {
   const s = tf.trim().toLowerCase();
-  if (['1w', '2w', '3w', '1m', '2m', '3m', '6m', '1y'].includes(s)) return s;
+  if (['1d', '1w', '2w', '3w', '1m', '2m', '3m', '6m', '1y'].includes(s)) return s;
+  if (/^1\s*d/.test(s) || s === 'tomorrow' || s === '隔天' || s === '明天') return '1d';
   // 年
   if (/^1\s*[y年]/.test(s)) return '1y';
   // 月
@@ -677,6 +679,7 @@ function normalizeTimeframe(tf: string): string {
 
 function getLimitMultiplier(duration: string): number {
   const multipliers: Record<string, number> = {
+    '1d': 1.04,
     '1w': 1.08,
     '2w': 1.10,
     '3w': 1.12,
@@ -941,7 +944,7 @@ function validateAndClampPrediction(response: any, duration: string, lang?: stri
 // 唯一審查標準：sigmaMultiple = expectedReturn / (annualVol × √(T/252))
 // ============================================================
 const REVIEW_TIMEFRAME_DAYS: Record<string, number> = {
-  '1w': 5, '2w': 10, '3w': 15, '1m': 21, '2m': 42, '3m': 63, '6m': 126, '1y': 252,
+  '1d': 1, '1w': 5, '2w': 10, '3w': 15, '1m': 21, '2m': 42, '3m': 63, '6m': 126, '1y': 252,
 };
 
 async function strictReviewByVolatility(
@@ -955,10 +958,12 @@ async function strictReviewByVolatility(
   }
 
   const T = REVIEW_TIMEFRAME_DAYS[duration] ?? 21;
-  // ETF 類別波動率天然較低，下限放寬到 0.15σ；上限保留 2.5σ 防止過激進
+  // 隔天預測：σ 極窄（1d vol ≈ 1.9%），下限設 0.05 才不會全部 reject；上限也放寬到 3.0
+  // ETF 類別波動率天然較低，下限放寬到 0.15σ；上限保留 3.0σ
+  const isNextDay = duration === '1d';
   const isEtfCategory = categoryType === 'etf' || categoryType === 'activeEtf';
-  const sigmaLower = isEtfCategory ? 0.15 : 0.3;
-  const sigmaUpper = isEtfCategory ? 3.0 : 2.5;
+  const sigmaLower = isNextDay ? 0.05 : isEtfCategory ? 0.15 : 0.3;
+  const sigmaUpper = isNextDay ? 3.0 : isEtfCategory ? 3.0 : 2.5;
 
   // 並行抓 90 天歷史價，計算年化波動率
   const enriched = await Promise.all(

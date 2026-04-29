@@ -971,7 +971,7 @@ export default function App() {
                           {t('form.duration')}
                         </label>
                         <div className="flex flex-wrap gap-2">
-                          {(['1w', '2w', '3w', '1m', 'custom'] as const).map((dur) => (
+                          {(['1d', '1w', '2w', '3w', '1m', 'custom'] as const).map((dur) => (
                             <button
                               key={dur}
                               type="button"
@@ -980,7 +980,9 @@ export default function App() {
                               className={cn(
                                 'px-5 py-2.5 rounded-full text-sm font-medium transition-all',
                                 selectedDuration === dur
-                                  ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md'
+                                  ? dur === '1d'
+                                    ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md'
+                                    : 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md'
                                   : loading
                                   ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
                                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1009,6 +1011,15 @@ export default function App() {
                         )}
 
                         <p className="text-xs text-slate-400 mt-2">{t('form.duration.note')}</p>
+                        {selectedDuration === '1d' && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700"
+                          >
+                            {t('form.duration.1d.warning')}
+                          </motion.div>
+                        )}
                       </div>
 
                       {/* Submit */}
@@ -1173,7 +1184,7 @@ export default function App() {
                           {t('prediction.duration')}
                         </label>
                         <div className="flex flex-wrap gap-2">
-                          {(['1w', '2w', '3w', '1m', 'custom'] as const).map((dur) => (
+                          {(['1d', '1w', '2w', '3w', '1m', 'custom'] as const).map((dur) => (
                             <button
                               key={dur}
                               type="button"
@@ -1182,7 +1193,9 @@ export default function App() {
                               className={cn(
                                 'px-5 py-2.5 rounded-full text-sm font-medium transition-all',
                                 predictionDuration === dur
-                                  ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md'
+                                  ? dur === '1d'
+                                    ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md'
+                                    : 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-md'
                                   : loading
                                   ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
                                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1211,6 +1224,15 @@ export default function App() {
                         )}
 
                         <p className="text-xs text-slate-400 mt-2">{t('form.duration.note')}</p>
+                        {predictionDuration === '1d' && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700"
+                          >
+                            {t('form.duration.1d.warning')}
+                          </motion.div>
+                        )}
                       </div>
 
                       {/* Submit */}
