@@ -160,7 +160,12 @@ export async function logout(): Promise<void> {
 
 /** Subscribe to auth state changes. Returns an unsubscribe function. */
 export function onAuthChange(cb: (user: User | null) => void): () => void {
-  const { data } = supabase.auth.onAuthStateChange((_event, session: Session | null) => {
+  const { data } = supabase.auth.onAuthStateChange((event, session: Session | null) => {
+    // After OAuth callback, Supabase leaves an empty '#' in the URL.
+    // Clean it up so the address bar shows the clean URL.
+    if (event === 'SIGNED_IN' && window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
     cb(session?.user ? toUser(session.user) : null);
   });
   return () => data.subscription.unsubscribe();
