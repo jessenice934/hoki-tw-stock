@@ -103,13 +103,17 @@ async function callGeminiAPI(
   generationConfig: Record<string, unknown> = {
     temperature: 0, topP: 1, topK: 40, maxOutputTokens: 8192, responseMimeType: 'application/json',
   },
+  inlineImage?: { base64: string; mimeType: string },
 ): Promise<string> {
+  const parts: unknown[] = inlineImage
+    ? [{ inlineData: { mimeType: inlineImage.mimeType, data: inlineImage.base64 } }, { text: userPrompt }]
+    : [{ text: userPrompt }];
   const res = await fetch('/api/gemini', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       systemInstruction,
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      contents: [{ role: 'user', parts }],
       generationConfig,
     }),
   });
@@ -243,6 +247,9 @@ interface SingleStockParams {
   timeframe: string;
   lang?: string;
   reference?: RecommendationReference;
+  /** Optional chart screenshot (base64) to enhance technical analysis */
+  chartImageBase64?: string;
+  chartImageMimeType?: string;
 }
 
 interface PortfolioParams {
@@ -1430,10 +1437,17 @@ ${evidenceBand.components.map((c) => `  · ${c.name} (${c.value}): ${c.driftPct 
 Your targetPrice MUST sit inside [Low, High]. Anchor base case near the Base price; bull/bear scenarios at High/Low. Justify in rationale by referencing the σ√T math AND specific drift components above (e.g., "20-day momentum +X%, RSI overbought −Y%, foreign net buy +Z%"). The band is data — explain how your call sits relative to it.`
     : '';
 
-  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}${fundContext}${srContext}${evidenceContext}
+  const chartImageContext = params.chartImageBase64
+    ? `\n\nCHART SCREENSHOT PROVIDED: A candlestick chart image has been uploaded by the user. Carefully analyze the visible chart patterns, candlestick formations, volume bars, moving averages, trendlines, support/resistance zones, and any technical indicators visible in the image. Incorporate these visual observations into your technical rationale, catalysts, and technicals fields. If you see a clear pattern (e.g., double bottom, head-and-shoulders, breakout, consolidation), describe it explicitly.`
+    : '';
+
+  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}${fundContext}${srContext}${evidenceContext}${chartImageContext}
 Provide 4 fundamental metrics, 3 scenarios(sum=100, prices anchored to band Low/Base/High above), sentiment (derive newsRatio from headlines if provided), institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. targetPrice MUST be within the evidence band shown above. ${langInstruction} JSON only.`;
 
-  const rawText = await callGeminiAPI(systemPrompt, userPrompt);
+  const inlineImage = params.chartImageBase64
+    ? { base64: params.chartImageBase64, mimeType: params.chartImageMimeType ?? 'image/png' }
+    : undefined;
+  const rawText = await callGeminiAPI(systemPrompt, userPrompt, undefined, inlineImage);
 
   const parsedResponse = repairJson(rawText);
   const validatedResponse = validateAndClampPrediction(parsedResponse, normTf, params.lang);
