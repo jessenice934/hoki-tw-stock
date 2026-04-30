@@ -44,7 +44,7 @@ export default function HomeHero({ onNavigate, currentUser, trialState, onStartT
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3, duration: 0.7 }}
-            className="text-[72px] leading-[88px] md:text-[96px] md:leading-[120px] mb-8 tracking-[-0.02em]"
+            className="text-[clamp(52px,10vw,72px)] leading-[1.22] mb-8 tracking-[-0.02em]"
           >
             <span className="gradient-text">{t('hero.line1')}</span>
             <br />
