@@ -225,6 +225,56 @@ export default function App() {
     return unsubscribe;
   }, []);
 
+  // ── Auto-review expired tasks ──────────────────────────────────────────────
+  // Runs silently on load and whenever the user account changes.
+  // No button click needed — any task whose forecast window has closed and
+  // whose outcome hasn't been computed yet is processed automatically.
+  useEffect(() => {
+    const parseDur = (dur: string): number | null => {
+      if (dur === '1d') return 1;
+      if (dur === '1w') return 7;
+      if (dur === '2w') return 14;
+      if (dur === '3w') return 21;
+      if (dur === '1m') return 30;
+      const mo = dur.match(/(\d+)\s*(?:個月|months?|m)/i);
+      if (mo) return parseInt(mo[1]) * 30;
+      const wk = dur.match(/(\d+)\s*(?:週|weeks?|w)/i);
+      if (wk) return parseInt(wk[1]) * 7;
+      const dy = dur.match(/(\d+)\s*(?:天|days?|d)/i);
+      if (dy) return parseInt(dy[1]);
+      return null;
+    };
+
+    const run = async () => {
+      const uid = currentUser?.id ?? null;
+      const tasks = getHistory(uid).filter(item => {
+        if (item.type === 'healthcheck' || item.outcome) return false;
+        const dur = item.params?.duration;
+        if (!dur) return false;
+        const days = parseDur(dur);
+        if (!days) return false;
+        const expiry = new Date(item.date).getTime() + days * 86400000;
+        return expiry <= Date.now();
+      });
+      if (tasks.length === 0) return;
+
+      let reviewed = 0;
+      for (const task of tasks) {
+        try {
+          const outcome = await reviewTask(task);
+          updateTask(task.id, { outcome }, uid);
+          reviewed++;
+        } catch {
+          // silent — task remains unreviewed; manual button still available
+        }
+      }
+      if (reviewed > 0) setHistory(getHistory(uid));
+    };
+
+    run();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
+
   const handleRecommendation = async (formData: any) => {
     // Check if user can analyze
     if (!canAnalyze(currentUser)) {

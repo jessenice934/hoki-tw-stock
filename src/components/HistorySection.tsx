@@ -302,34 +302,32 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
                               );
                             }
 
-                            // 已到期、未檢視 → 顯示 review 按鈕
+                            // 已到期、未檢視 → 自動回顧中（App.tsx useEffect 會處理）
+                            // 顯示輕量 loading 指示，若自動失敗才顯示手動按鈕
                             return (
                               <div className="flex items-center gap-2 flex-wrap">
-                                <motion.button
-                                  whileHover={{ scale: 1.02 }}
-                                  whileTap={{ scale: 0.98 }}
-                                  onClick={(e) => handleReviewClick(e, item.id)}
-                                  disabled={isReviewing || !onReview}
-                                  className={cn(
-                                    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors',
-                                    'bg-gradient-to-r from-blue-600 to-blue-500 text-white hover:shadow-md',
-                                    'disabled:opacity-60 disabled:cursor-not-allowed'
-                                  )}
-                                >
-                                  {isReviewing ? (
-                                    <>
-                                      <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                                      <span>{t('history.review.loading')}</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Search className="w-3 h-3" />
-                                      <span>{t('history.review.now')}</span>
-                                    </>
-                                  )}
-                                </motion.button>
+                                {isReviewing ? (
+                                  <div className="flex items-center gap-1.5 text-xs text-blue-600">
+                                    <div className="w-3 h-3 border-2 border-blue-400/40 border-t-blue-600 rounded-full animate-spin" />
+                                    <span>{t('history.review.loading')}</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                                    <div className="w-3 h-3 border-2 border-slate-300/40 border-t-slate-400 rounded-full animate-spin" />
+                                    <span>{t('history.auto.reviewing')}</span>
+                                  </div>
+                                )}
                                 {reviewError && (
-                                  <span className="text-xs text-rose-500">{t('history.review.error')}</span>
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={(e) => handleReviewClick(e, item.id)}
+                                    disabled={isReviewing || !onReview}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-600 border border-rose-200 bg-rose-50 hover:bg-rose-100 transition-colors"
+                                  >
+                                    <Search className="w-3 h-3" />
+                                    {t('history.review.retry')}
+                                  </motion.button>
                                 )}
                               </div>
                             );
