@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, Clock, ChevronRight, ChevronDown, AlertCircle, CheckCircle, X, Search, Target, TrendingDown, Sparkles } from 'lucide-react';
 import { InvestmentTask, TaskOutcome, OutcomeEntry } from '@/lib/storage';
 import { cn } from '@/lib/utils';
+import { getStockName } from '@/lib/stockNames';
 import RecommendationCard from './RecommendationCard';
 import HealthCheckCard from './HealthCheckCard';
 import StockPredictionChart from './StockPredictionChart';
@@ -199,7 +200,7 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
                           {activeTab === 'recommendation'
                             ? t('history.recommend.title')
                             : activeTab === 'prediction'
-                            ? `${t('prediction.title')}${item.params?.ticker ? ` - ${item.params.ticker}` : ''}`
+                            ? `${t('prediction.title')}${item.params?.ticker ? ` - ${item.params.ticker}${getStockName(item.params.ticker) ? ` ${getStockName(item.params.ticker)}` : ''}` : ''}`
                             : t('history.health.title')}
                         </h3>
                         <span className="px-2.5 py-0.5 rounded-md bg-slate-100 text-xs text-slate-500">
@@ -605,7 +606,12 @@ function OutcomeRow({ entry }: { entry: OutcomeEntry }) {
     <div className="rounded-xl bg-white border border-slate-200 p-3 md:p-4">
       {/* Header: ticker + status badge */}
       <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-        <span className="font-bold text-slate-900 text-base">{entry.ticker}</span>
+        <span className="font-bold text-slate-900 text-base">
+          {entry.ticker}
+          {getStockName(entry.ticker) && (
+            <span className="ml-1.5 text-sm font-medium text-slate-500">{getStockName(entry.ticker)}</span>
+          )}
+        </span>
         <div className="flex items-center gap-1.5 flex-wrap">
           {entry.hitStop ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-xs text-rose-700 font-semibold">

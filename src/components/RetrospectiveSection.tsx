@@ -14,6 +14,7 @@ import {
   RetrospectiveStats, BreakdownRow, TickerEntry,
 } from '@/lib/retrospective';
 import { generateRetrospectiveCritique } from '@/lib/gemini';
+import { getStockName } from '@/lib/stockNames';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -465,7 +466,12 @@ function PerformersCard({
             >
               {/* Top row: ticker + actual change */}
               <div className="flex items-center justify-between gap-2">
-                <span className="font-bold text-slate-900 text-sm">{r.ticker}</span>
+                <span className="font-bold text-slate-900 text-sm">
+                  {r.ticker}
+                  {getStockName(r.ticker) && (
+                    <span className="ml-1 text-xs font-medium text-slate-400">{getStockName(r.ticker)}</span>
+                  )}
+                </span>
                 <span
                   className={cn(
                     'font-bold text-sm flex-shrink-0',
@@ -569,7 +575,12 @@ function ComparisonTable({
                   key={`${r.ticker}-${r.taskDate}-${i}`}
                   className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors"
                 >
-                  <td className="py-2 px-2 font-bold text-slate-900">{r.ticker}</td>
+                  <td className="py-2 px-2 font-bold text-slate-900">
+                    <span>{r.ticker}</span>
+                    {getStockName(r.ticker) && (
+                      <span className="block text-xs font-medium text-slate-400">{getStockName(r.ticker)}</span>
+                    )}
+                  </td>
                   <td className="py-2 px-2 text-slate-500">
                     <div>{r.taskDate.slice(0, 10)}</div>
                     {r.duration && (
@@ -656,7 +667,12 @@ function ComparisonTable({
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900 text-sm">{r.ticker}</span>
+                  <span className="font-bold text-slate-900 text-sm">
+                    {r.ticker}
+                    {getStockName(r.ticker) && (
+                      <span className="ml-1 text-xs font-medium text-slate-400">{getStockName(r.ticker)}</span>
+                    )}
+                  </span>
                   <span className="text-[10px] text-slate-400">
                     {r.taskDate.slice(0, 10)}
                     {r.duration ? ` · ${r.duration}` : ''}

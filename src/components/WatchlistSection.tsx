@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { Trash2, Activity, TrendingUp, LineChart } from 'lucide-react';
 import { WatchlistItem } from '@/lib/storage';
+import { getStockName } from '@/lib/stockNames';
 
 interface WatchlistSectionProps {
   items: WatchlistItem[];
@@ -105,7 +106,10 @@ export default function WatchlistSection({
                   {formatDate(item.addedAt)}
                 </span>
               </div>
-              <p className="text-sm text-slate-500 truncate">{item.name}</p>
+              <p className="text-sm text-slate-500 truncate">
+                {/* prefer stored name; fall back to static lookup; last resort = ticker */}
+                {(item.name && item.name !== item.ticker) ? item.name : (getStockName(item.ticker) ?? item.ticker)}
+              </p>
             </div>
 
             {/* Price */}
