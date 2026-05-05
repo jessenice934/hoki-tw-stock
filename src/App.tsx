@@ -796,6 +796,25 @@ export default function App() {
     setPredictionTicker(ticker.toUpperCase());
   };
 
+  const handleQuickPredict = async (ticker: string): Promise<number | null> => {
+    if (!canAnalyze(currentUser)) {
+      if (!currentUser) setLoginOpen(true);
+      return null;
+    }
+    try {
+      const result = await analyzeSingleStock({
+        ticker: ticker.toUpperCase(),
+        timeframe: '1d',
+        lang: i18n.language,
+      });
+      if (!currentUser) { incrementAnalysesUsed(); refreshTrialState(); }
+      else { incrementDailyAnalysis(currentUser.id); refreshTrialState(); }
+      return result.targetPrice ?? null;
+    } catch {
+      return null;
+    }
+  };
+
   const navItems = [
     { id: 'recommend' as Tab, label: t('nav.recommend') },
     { id: 'prediction' as Tab, label: t('nav.prediction') },
@@ -1550,6 +1569,7 @@ export default function App() {
                   onRefresh={handleRefreshPrices}
                   loading={loading}
                   onAnalyze={handleAnalyzeTicker}
+                  onQuickPredict={handleQuickPredict}
                 />
                 )}
               </div>

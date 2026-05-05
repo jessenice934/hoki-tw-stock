@@ -1,9 +1,16 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'motion/react';
-import { Trash2, Activity, TrendingUp, LineChart } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Trash2, Activity, TrendingUp, LineChart, Zap, Loader, ArrowRight } from 'lucide-react';
 import { WatchlistItem } from '@/lib/storage';
 import { getStockName } from '@/lib/stockNames';
+
+interface QuickPredictState {
+  loading: boolean;
+  price?: number;
+  date?: string;
+  error?: boolean;
+}
 
 interface WatchlistSectionProps {
   items: WatchlistItem[];
@@ -12,6 +19,14 @@ interface WatchlistSectionProps {
   loading: boolean;
   /** 跳到個股預測並自動填入 ticker。沒傳就不顯示按鈕。 */
   onAnalyze?: (ticker: string) => void;
+  /** 一鍵隔日快速預測，回傳目標價或 null（失敗/額度不足）。 */
+  onQuickPredict?: (ticker: string) => Promise<number | null>;
+}
+
+function getTomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
 function formatDate(dateStr: string): string {
@@ -40,8 +55,24 @@ export default function WatchlistSection({
   onRefresh,
   loading,
   onAnalyze,
+  onQuickPredict,
 }: WatchlistSectionProps) {
   const { t } = useTranslation();
+  const [quickPredicts, setQuickPredicts] = useState<Record<string, QuickPredictState>>({});
+
+  const handleQuickPredict = useCallback(async (ticker: string) => {
+    if (!onQuickPredict) return;
+    setQuickPredicts(prev => ({ ...prev, [ticker]: { loading: true } }));
+    const price = await onQuickPredict(ticker);
+    if (price !== null) {
+      setQuickPredicts(prev => ({
+        ...prev,
+        [ticker]: { loading: false, price, date: getTomorrowStr() },
+      }));
+    } else {
+      setQuickPredicts(prev => ({ ...prev, [ticker]: { loading: false, error: true } }));
+    }
+  }, [onQuickPredict]);
 
   if (items.length === 0) {
     return (
@@ -91,60 +122,122 @@ export default function WatchlistSection({
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.08 }}
-            className="glass-card p-5 md:p-6 flex items-center gap-4"
+            className="glass-card p-5 md:p-6"
           >
-            {/* Avatar */}
-            <div className={`w-12 h-12 rounded-xl ${getTickerColor(item.ticker)} flex items-center justify-center flex-shrink-0`}>
-              <span className="text-lg font-bold text-white">{item.ticker.charAt(0)}</span>
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-0.5">
-                <h3 className="text-base font-bold text-slate-900">{item.ticker}</h3>
-                <span className="px-2.5 py-0.5 rounded-md bg-slate-100 text-xs text-slate-500">
-                  {formatDate(item.addedAt)}
-                </span>
+            {/* Main row */}
+            <div className="flex items-center gap-4">
+              {/* Avatar */}
+              <div className={`w-12 h-12 rounded-xl ${getTickerColor(item.ticker)} flex items-center justify-center flex-shrink-0`}>
+                <span className="text-lg font-bold text-white">{item.ticker.charAt(0)}</span>
               </div>
-              <p className="text-sm text-slate-500 truncate">
-                {/* prefer stored name; fall back to static lookup; last resort = ticker */}
-                {(item.name && item.name !== item.ticker) ? item.name : (getStockName(item.ticker) ?? item.ticker)}
-              </p>
-            </div>
 
-            {/* Price */}
-            {item.currentPrice && (
-              <div className="text-right flex-shrink-0">
-                <p className="text-xs text-slate-400 mb-0.5">{t('watchlist.current.price')}</p>
-                <p className="text-2xl font-bold text-slate-900 font-data">
-                  NT${parseFloat(item.currentPrice).toFixed(2)}
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3 mb-0.5">
+                  <h3 className="text-base font-bold text-slate-900">{item.ticker}</h3>
+                  <span className="px-2.5 py-0.5 rounded-md bg-slate-100 text-xs text-slate-500">
+                    {formatDate(item.addedAt)}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500 truncate">
+                  {(item.name && item.name !== item.ticker) ? item.name : (getStockName(item.ticker) ?? item.ticker)}
                 </p>
               </div>
-            )}
 
-            {/* Predict */}
-            {onAnalyze && (
+              {/* Current Price */}
+              {item.currentPrice && (
+                <div className="text-right flex-shrink-0">
+                  <p className="text-xs text-slate-400 mb-0.5">{t('watchlist.current.price')}</p>
+                  <p className="text-2xl font-bold text-slate-900 font-data">
+                    NT${parseFloat(item.currentPrice).toFixed(2)}
+                  </p>
+                </div>
+              )}
+
+              {/* Quick Predict (隔日) */}
+              {onQuickPredict && (
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => handleQuickPredict(item.ticker)}
+                  disabled={quickPredicts[item.ticker]?.loading}
+                  className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center hover:bg-amber-100 transition-colors flex-shrink-0 disabled:opacity-50"
+                  aria-label={t('watchlist.quickPredict')}
+                  title={t('watchlist.quickPredict')}
+                >
+                  {quickPredicts[item.ticker]?.loading
+                    ? <Loader className="w-4 h-4 text-amber-500 animate-spin" />
+                    : <Zap className="w-4 h-4 text-amber-500" />
+                  }
+                </motion.button>
+              )}
+
+              {/* Full Predict */}
+              {onAnalyze && (
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => onAnalyze(item.ticker)}
+                  className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center hover:bg-blue-100 transition-colors flex-shrink-0"
+                  aria-label={t('cta.analyze')}
+                  title={t('cta.analyze')}
+                >
+                  <LineChart className="w-4 h-4 text-blue-600" />
+                </motion.button>
+              )}
+
+              {/* Delete */}
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => onAnalyze(item.ticker)}
-                className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center hover:bg-blue-100 transition-colors flex-shrink-0"
-                aria-label={t('cta.analyze')}
-                title={t('cta.analyze')}
+                onClick={() => onRemove(item.ticker)}
+                className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center hover:bg-amber-50 hover:border-amber-300 transition-colors flex-shrink-0"
               >
-                <LineChart className="w-4 h-4 text-blue-600" />
+                <Trash2 className="w-4 h-4 text-slate-500" />
               </motion.button>
-            )}
+            </div>
 
-            {/* Delete */}
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => onRemove(item.ticker)}
-              className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center hover:bg-amber-50 hover:border-amber-300 transition-colors flex-shrink-0"
-            >
-              <Trash2 className="w-4 h-4 text-slate-500" />
-            </motion.button>
+            {/* Quick Predict Result Row */}
+            <AnimatePresence>
+              {quickPredicts[item.ticker] && !quickPredicts[item.ticker].loading && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="mt-4 pt-3 border-t border-slate-100"
+                >
+                  {quickPredicts[item.ticker].error ? (
+                    <p className="text-xs text-red-400">{t('watchlist.quickPredict.error')}</p>
+                  ) : (
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs text-slate-400 mb-0.5">
+                          {t('watchlist.quickPredict.label')}
+                          <span className="ml-1.5 font-medium text-amber-500">
+                            {quickPredicts[item.ticker].date}
+                          </span>
+                        </p>
+                        <p className="text-xl font-bold text-amber-600 font-data">
+                          NT${quickPredicts[item.ticker].price!.toFixed(2)}
+                        </p>
+                      </div>
+                      {onAnalyze && (
+                        <motion.button
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.97 }}
+                          onClick={() => onAnalyze(item.ticker)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-700 transition-colors flex-shrink-0"
+                        >
+                          {t('watchlist.quickPredict.detail')}
+                          <ArrowRight className="w-3 h-3" />
+                        </motion.button>
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         ))}
       </div>
