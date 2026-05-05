@@ -322,9 +322,9 @@ export default function StockPredictionChart({ result, monteCarloResult, entryTi
               NT${currentPrice?.toFixed(2)}
             </p>
           </div>
-          <div className="bg-blue-50 rounded-xl p-3">
-            <p className="text-xs text-slate-400 mb-1">{t('prediction.chart.target')}</p>
-            <p className="text-lg font-bold text-blue-600">
+          <div className="bg-emerald-100 rounded-xl p-3">
+            <p className="text-xs font-semibold text-emerald-700 mb-1 tracking-wide">{t('prediction.chart.target')}</p>
+            <p className="text-lg font-bold text-emerald-700">
               NT${targetPrice?.toFixed(2)}
             </p>
           </div>
