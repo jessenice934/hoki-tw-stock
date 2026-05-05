@@ -147,7 +147,6 @@ export default function App() {
   const [predictionTicker, setPredictionTicker] = useState('');
   const [predictionDuration, setPredictionDuration] = useState('1w');
   const [predictionCustomDuration, setPredictionCustomDuration] = useState('');
-  const [predictionChartImage, setPredictionChartImage] = useState<File | null>(null);
   const [predictionResult, setPredictionResult] = useState<any>(null);
   const [monteCarloResult, setMonteCarloResult] = useState<MonteCarloResult | null>(null);
   const [entryTimingResult, setEntryTimingResult] = useState<EntryTimingResult | null>(null);
@@ -431,21 +430,6 @@ export default function App() {
     const dur = predictionDuration === 'custom' ? predictionCustomDuration : predictionDuration;
     const tickerUpper = predictionTicker.trim().toUpperCase();
 
-    // Convert chart image to base64 if provided
-    let chartBase64: string | undefined;
-    let chartMimeType: string | undefined;
-    if (predictionChartImage) {
-      chartBase64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
-          resolve(dataUrl.split(',')[1]);
-        };
-        reader.readAsDataURL(predictionChartImage);
-      });
-      chartMimeType = predictionChartImage.type || 'image/png';
-    }
-
     track('analysis_started', {
       type: 'prediction',
       ticker: tickerUpper,
@@ -655,7 +639,7 @@ export default function App() {
         }
 
         try {
-          const aiResult = await analyzeSingleStock({ ticker: tickerUpper, timeframe: dur, lang: i18n.language, reference, chartImageBase64: chartBase64, chartImageMimeType: chartMimeType });
+          const aiResult = await analyzeSingleStock({ ticker: tickerUpper, timeframe: dur, lang: i18n.language, reference });
 
           // 用 AI 目標價重新生成趨勢線（結合 AI 方向 + MC 波動性）
           const aiTarget = aiResult.targetPrice || localResult.targetPrice;
@@ -837,20 +821,6 @@ export default function App() {
     maxFiles: 1,
   });
 
-  const onDropChartImage = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) {
-      setPredictionChartImage(acceptedFiles[0]);
-    }
-  }, []);
-
-  const { getRootProps: getChartRootProps, getInputProps: getChartInputProps, isDragActive: isChartDragActive } = useDropzone({
-    onDrop: onDropChartImage,
-    accept: {
-      'image/png': ['.png'],
-      'image/jpeg': ['.jpg', '.jpeg'],
-    },
-    maxFiles: 1,
-  });
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
@@ -1316,48 +1286,6 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* Chart Screenshot Upload */}
-                      <div>
-                        <label className="block text-sm font-semibold text-slate-500 mb-2">
-                          {t('prediction.chart.upload.label')}
-                        </label>
-                        {predictionChartImage ? (
-                          <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50/60">
-                            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
-                              <Upload className="w-4 h-4 text-blue-500" />
-                            </div>
-                            <p className="text-sm text-slate-700 flex-1 truncate font-medium">
-                              {t('prediction.chart.upload.added', { name: predictionChartImage.name })}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => setPredictionChartImage(null)}
-                              className="text-xs font-semibold text-red-500 hover:text-red-700 flex-shrink-0 transition-colors"
-                            >
-                              {t('prediction.chart.upload.remove')}
-                            </button>
-                          </div>
-                        ) : (
-                          <div
-                            {...getChartRootProps()}
-                            className={cn(
-                              'border-2 border-dashed rounded-xl px-4 py-6 flex flex-col items-center justify-center cursor-pointer transition-all',
-                              isChartDragActive
-                                ? 'border-blue-500 bg-blue-50'
-                                : 'border-gray-200 bg-slate-50/50 hover:border-blue-300 hover:bg-blue-50/30'
-                            )}
-                          >
-                            <input {...getChartInputProps()} />
-                            <Upload className="w-6 h-6 text-slate-400 mb-2" />
-                            <p className="text-sm text-slate-500 text-center mb-1">
-                              {t('prediction.chart.upload.text')}
-                            </p>
-                            <p className="text-xs text-slate-400">{t('prediction.chart.upload.formats')}</p>
-                            <p className="text-xs text-blue-500 mt-2 text-center">{t('prediction.chart.upload.hint')}</p>
-                          </div>
-                        )}
-                      </div>
-
                       {/* Submit */}
                       <motion.button
                         onClick={handlePrediction}
@@ -1372,9 +1300,6 @@ export default function App() {
                           <Zap className="w-5 h-5" />
                         )}
                         {t('prediction.submit')}
-                        {predictionChartImage && (
-                          <span className="ml-1 text-xs bg-white/20 px-1.5 py-0.5 rounded-full">+圖</span>
-                        )}
                       </motion.button>
 
                     </div>
@@ -1405,7 +1330,7 @@ export default function App() {
                       />
                     </ErrorBoundary>
                     <motion.button
-                      onClick={() => { setPredictionResult(null); setPredictionTicker(''); setPredictionChartImage(null); }}
+                      onClick={() => { setPredictionResult(null); setPredictionTicker(''); }}
                       className="btn-outline w-full"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
