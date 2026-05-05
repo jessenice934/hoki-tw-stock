@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, Clock, ChevronRight, ChevronDown, AlertCircle, CheckCircle, X, Search, Target, TrendingDown, Sparkles } from 'lucide-react';
@@ -18,6 +18,9 @@ interface HistorySectionProps {
   watchedTickers?: string[];
   /** 跳到個股預測並自動填入 ticker。沒傳就不顯示按鈕。 */
   onAnalyze?: (ticker: string) => void;
+  /** 自動切換到指定 tab 並展開指定 task（從外部導航用，例如自選追蹤快速預測後的「看詳細」）。 */
+  autoExpandId?: string | null;
+  autoExpandTab?: HistoryTab;
 }
 
 type HistoryTab = 'recommendation' | 'prediction' | 'healthcheck';
@@ -71,11 +74,22 @@ function parseResult(result: string): any {
   }
 }
 
-export default function HistorySection({ items, onRemove, onAddToWatchlist, onReview, reviewingId, watchedTickers = [], onAnalyze }: HistorySectionProps) {
+export default function HistorySection({ items, onRemove, onAddToWatchlist, onReview, reviewingId, watchedTickers = [], onAnalyze, autoExpandId, autoExpandTab }: HistorySectionProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<HistoryTab>('recommendation');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
+
+  // 外部導航：從自選追蹤「看詳細」跳進來時，自動切 tab + 展開該筆
+  useEffect(() => {
+    if (!autoExpandId) return;
+    if (autoExpandTab) setActiveTab(autoExpandTab);
+    setExpandedId(autoExpandId);
+    // 讓 DOM 渲染後滾動到該項目
+    setTimeout(() => {
+      document.getElementById(`history-item-${autoExpandId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+  }, [autoExpandId, autoExpandTab]);
 
   const handleReviewClick = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -175,6 +189,7 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
               return (
                 <motion.div
                   key={item.id}
+                  id={`history-item-${item.id}`}
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.05 }}

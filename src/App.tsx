@@ -139,6 +139,7 @@ export default function App() {
   const [result, setResult] = useState<any>(null);
   const [history, setHistory] = useState(() => getHistory(null));
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [historyAutoOpen, setHistoryAutoOpen] = useState<{ tab: 'prediction'; taskId: string } | null>(null);
   const [watchlist, setWatchlist] = useState<ReturnType<typeof getWatchlist>>([]);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [selectedDuration, setSelectedDuration] = useState('1w');
@@ -796,7 +797,7 @@ export default function App() {
     setPredictionTicker(ticker.toUpperCase());
   };
 
-  const handleQuickPredict = async (ticker: string): Promise<number | null> => {
+  const handleQuickPredict = async (ticker: string): Promise<{ price: number; taskId: string } | null> => {
     if (!canAnalyze(currentUser)) {
       if (!currentUser) setLoginOpen(true);
       return null;
@@ -807,12 +808,27 @@ export default function App() {
         timeframe: '1d',
         lang: i18n.language,
       });
+      const taskId = `qp_${Date.now()}`;
+      const task = {
+        id: taskId,
+        type: 'prediction' as const,
+        date: new Date().toISOString(),
+        params: { ticker: ticker.toUpperCase(), duration: '1d' },
+        result: JSON.stringify(result),
+      };
+      saveTask(task, currentUser?.id);
       if (!currentUser) { incrementAnalysesUsed(); refreshTrialState(); }
       else { incrementDailyAnalysis(currentUser.id); refreshTrialState(); }
-      return result.targetPrice ?? null;
+      setHistory(getHistory(currentUser?.id));
+      return { price: result.targetPrice ?? 0, taskId };
     } catch {
       return null;
     }
+  };
+
+  const handleOpenHistoryTask = (taskId: string) => {
+    setHistoryAutoOpen({ tab: 'prediction', taskId });
+    switchTab('history');
   };
 
   const navItems = [
@@ -1570,6 +1586,7 @@ export default function App() {
                   loading={loading}
                   onAnalyze={handleAnalyzeTicker}
                   onQuickPredict={handleQuickPredict}
+                  onViewDetail={handleOpenHistoryTask}
                 />
                 )}
               </div>
@@ -1620,6 +1637,8 @@ export default function App() {
                   reviewingId={reviewingId}
                   watchedTickers={watchlist.map(w => w.ticker)}
                   onAnalyze={handleAnalyzeTicker}
+                  autoExpandId={historyAutoOpen?.taskId}
+                  autoExpandTab={historyAutoOpen?.tab}
                 />
               </div>
             </motion.div>

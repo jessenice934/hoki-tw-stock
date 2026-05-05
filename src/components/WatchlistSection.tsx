@@ -9,6 +9,7 @@ interface QuickPredictState {
   loading: boolean;
   price?: number;
   date?: string;
+  taskId?: string;
   error?: boolean;
 }
 
@@ -19,8 +20,10 @@ interface WatchlistSectionProps {
   loading: boolean;
   /** 跳到個股預測並自動填入 ticker。沒傳就不顯示按鈕。 */
   onAnalyze?: (ticker: string) => void;
-  /** 一鍵隔日快速預測，回傳目標價或 null（失敗/額度不足）。 */
-  onQuickPredict?: (ticker: string) => Promise<number | null>;
+  /** 一鍵隔日快速預測，回傳 { price, taskId } 或 null（失敗/額度不足）。 */
+  onQuickPredict?: (ticker: string) => Promise<{ price: number; taskId: string } | null>;
+  /** 「看詳細」點下去後，以 taskId 導到歷史紀錄並展開該筆。 */
+  onViewDetail?: (taskId: string) => void;
 }
 
 function getTomorrowStr(): string {
@@ -56,6 +59,7 @@ export default function WatchlistSection({
   loading,
   onAnalyze,
   onQuickPredict,
+  onViewDetail,
 }: WatchlistSectionProps) {
   const { t } = useTranslation();
   const [quickPredicts, setQuickPredicts] = useState<Record<string, QuickPredictState>>({});
@@ -63,11 +67,11 @@ export default function WatchlistSection({
   const handleQuickPredict = useCallback(async (ticker: string) => {
     if (!onQuickPredict) return;
     setQuickPredicts(prev => ({ ...prev, [ticker]: { loading: true } }));
-    const price = await onQuickPredict(ticker);
-    if (price !== null) {
+    const result = await onQuickPredict(ticker);
+    if (result !== null) {
       setQuickPredicts(prev => ({
         ...prev,
-        [ticker]: { loading: false, price, date: getTomorrowStr() },
+        [ticker]: { loading: false, price: result.price, date: getTomorrowStr(), taskId: result.taskId },
       }));
     } else {
       setQuickPredicts(prev => ({ ...prev, [ticker]: { loading: false, error: true } }));
@@ -236,11 +240,15 @@ export default function WatchlistSection({
                           NT${quickPredicts[item.ticker].price!.toFixed(2)}
                         </p>
                       </div>
-                      {onAnalyze && (
+                      {(onViewDetail || onAnalyze) && (
                         <motion.button
                           whileHover={{ scale: 1.03 }}
                           whileTap={{ scale: 0.97 }}
-                          onClick={() => onAnalyze(item.ticker)}
+                          onClick={() => {
+                            const qp = quickPredicts[item.ticker];
+                            if (qp?.taskId && onViewDetail) onViewDetail(qp.taskId);
+                            else if (onAnalyze) onAnalyze(item.ticker);
+                          }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-700 transition-colors flex-shrink-0"
                         >
                           {t('watchlist.quickPredict.detail')}
