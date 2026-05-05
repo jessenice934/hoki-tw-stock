@@ -78,6 +78,9 @@ export default function WatchlistSection({
     }
   }, [onQuickPredict]);
 
+  // 任何一支股票正在快速預測時，鎖定整個介面
+  const isAnyLoading = Object.values(quickPredicts).some(qp => qp.loading);
+
   if (items.length === 0) {
     return (
       <motion.div
@@ -108,8 +111,8 @@ export default function WatchlistSection({
         </div>
         <motion.button
           onClick={onRefresh}
-          disabled={loading}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-600 disabled:opacity-50"
+          disabled={loading || isAnyLoading}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
         >
@@ -174,11 +177,11 @@ export default function WatchlistSection({
                 {/* Quick Predict ⚡ */}
                 {onQuickPredict && (
                   <motion.button
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.94 }}
-                    onClick={() => handleQuickPredict(item.ticker)}
-                    disabled={quickPredicts[item.ticker]?.loading}
-                    className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center hover:bg-amber-100 transition-colors flex-shrink-0 disabled:opacity-50"
+                    whileHover={!isAnyLoading ? { scale: 1.08 } : {}}
+                    whileTap={!isAnyLoading ? { scale: 0.94 } : {}}
+                    onClick={() => !isAnyLoading && handleQuickPredict(item.ticker)}
+                    disabled={isAnyLoading}
+                    className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed enabled:hover:bg-amber-100"
                     aria-label={t('watchlist.quickPredict')}
                     title={t('watchlist.quickPredict')}
                   >
@@ -192,10 +195,11 @@ export default function WatchlistSection({
                 {/* Full Predict 📊 */}
                 {onAnalyze && (
                   <motion.button
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.94 }}
-                    onClick={() => onAnalyze(item.ticker)}
-                    className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center hover:bg-blue-100 transition-colors flex-shrink-0"
+                    whileHover={!isAnyLoading ? { scale: 1.08 } : {}}
+                    whileTap={!isAnyLoading ? { scale: 0.94 } : {}}
+                    onClick={() => !isAnyLoading && onAnalyze(item.ticker)}
+                    disabled={isAnyLoading}
+                    className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed enabled:hover:bg-blue-100"
                     aria-label={t('cta.analyze')}
                     title={t('cta.analyze')}
                   >
@@ -205,10 +209,11 @@ export default function WatchlistSection({
 
                 {/* Delete 🗑 */}
                 <motion.button
-                  whileHover={{ scale: 1.08 }}
-                  whileTap={{ scale: 0.94 }}
-                  onClick={() => onRemove(item.ticker)}
-                  className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center hover:bg-red-50 hover:border-red-200 transition-colors flex-shrink-0"
+                  whileHover={!isAnyLoading ? { scale: 1.08 } : {}}
+                  whileTap={!isAnyLoading ? { scale: 0.94 } : {}}
+                  onClick={() => !isAnyLoading && onRemove(item.ticker)}
+                  disabled={isAnyLoading}
+                  className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed enabled:hover:bg-red-50 enabled:hover:border-red-200"
                 >
                   <Trash2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-slate-400" />
                 </motion.button>
