@@ -111,22 +111,20 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
 
   const toggleExpand = (id: string) => {
     const isOpening = expandedId !== id;
+    setExpandedId(isOpening ? id : null);
 
     if (isOpening) {
-      // ★ 先 scroll，再改 state：
-      //   讓 viewport 在動畫開始前就鎖到 B 的標題列頂端。
-      //   A 收合時在 viewport 上方縮小，scroll anchoring 自動維持 B 的位置。
-      //   B 展開時往下撐，也不影響頂部位置。
-      const el = document.getElementById(`history-item-${id}`);
-      if (el) {
+      // 動畫 duration=0.3s，等到 A 收合、B 展開都結束後，
+      // 再用 instant scroll 把 B 的標題列帶到 nav 正下方。
+      // 用 instant（非 smooth）才不會被瀏覽器中途取消。
+      setTimeout(() => {
+        const el = document.getElementById(`history-item-${id}`);
+        if (!el) return;
         const navH = window.innerWidth >= 768 ? 72 : 104;
-        window.scrollTo({
-          top: el.getBoundingClientRect().top + window.scrollY - navH - 8,
-        });
-      }
+        const top = el.getBoundingClientRect().top + window.scrollY - navH - 8;
+        window.scrollTo({ top, behavior: 'instant' as ScrollBehavior });
+      }, 350);
     }
-
-    setExpandedId(isOpening ? id : null);
   };
 
   const tabs: { id: HistoryTab; label: string }[] = [
@@ -395,6 +393,7 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.3, ease: 'easeInOut' }}
                         className="overflow-hidden"
+                        style={{ overflowAnchor: 'none' }}
                       >
                         <div className="border border-t-0 border-gray-200 rounded-b-2xl bg-slate-50/50 p-4 md:p-6 space-y-4">
                           {/* Close button */}
