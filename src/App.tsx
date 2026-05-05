@@ -1751,6 +1751,41 @@ export default function App() {
         docType={legalTextType}
         onClose={() => setLegalTextOpen(false)}
       />
+
+      {/* Quick Predict Full-Page Overlay */}
+      <AnimatePresence>
+        {quickPredicting && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-2xl px-10 py-8 flex flex-col items-center gap-4 shadow-2xl mx-6"
+            >
+              {/* Spinner */}
+              <div className="relative w-14 h-14">
+                <div className="absolute inset-0 rounded-full border-4 border-amber-100" />
+                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-amber-500 animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Zap className="w-5 h-5 text-amber-500" />
+                </div>
+              </div>
+              {/* Text */}
+              <div className="text-center">
+                <p className="text-base font-bold text-slate-900 mb-1">AI 隔日預測中</p>
+                <p className="text-sm text-slate-400">正在分析即時數據，請稍候…</p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
