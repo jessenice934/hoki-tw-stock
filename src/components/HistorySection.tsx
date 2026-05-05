@@ -110,7 +110,17 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
   const currentItems = activeTab === 'recommendation' ? recommendItems : activeTab === 'prediction' ? predictionItems : healthItems;
 
   const toggleExpand = (id: string) => {
-    setExpandedId(expandedId === id ? null : id);
+    const isOpening = expandedId !== id;
+    setExpandedId(isOpening ? id : null);
+    if (isOpening) {
+      // 等動畫開始後，滾回到該 item 的頂端（標題列）
+      setTimeout(() => {
+        document.getElementById(`history-item-${id}`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }, 60);
+    }
   };
 
   const tabs: { id: HistoryTab; label: string }[] = [
@@ -193,7 +203,7 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.05 }}
-                  className="space-y-0"
+                  className="space-y-0 scroll-mt-28 md:scroll-mt-20"
                 >
                   {/* Summary Row (clickable) */}
                   <div
