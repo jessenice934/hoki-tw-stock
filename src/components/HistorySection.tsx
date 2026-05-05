@@ -113,13 +113,15 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
     const isOpening = expandedId !== id;
     setExpandedId(isOpening ? id : null);
     if (isOpening) {
-      // 等動畫開始後，滾回到該 item 的頂端（標題列）
+      // Framer Motion 展開動畫 duration=0.3s，等動畫完成後再 scroll
+      // 用 window.scrollTo 精確計算，避免 scrollIntoView 被動畫中途位置誤導
       setTimeout(() => {
-        document.getElementById(`history-item-${id}`)?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
-      }, 60);
+        const el = document.getElementById(`history-item-${id}`);
+        if (!el) return;
+        const navHeight = window.innerWidth >= 768 ? 72 : 104;
+        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 8;
+        window.scrollTo({ top, behavior: 'smooth' });
+      }, 380);
     }
   };
 
