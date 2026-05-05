@@ -111,18 +111,22 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
 
   const toggleExpand = (id: string) => {
     const isOpening = expandedId !== id;
-    setExpandedId(isOpening ? id : null);
+
     if (isOpening) {
-      // Framer Motion 展開動畫 duration=0.3s，等動畫完成後再 scroll
-      // 用 window.scrollTo 精確計算，避免 scrollIntoView 被動畫中途位置誤導
-      setTimeout(() => {
-        const el = document.getElementById(`history-item-${id}`);
-        if (!el) return;
-        const navHeight = window.innerWidth >= 768 ? 72 : 104;
-        const top = el.getBoundingClientRect().top + window.scrollY - navHeight - 8;
-        window.scrollTo({ top, behavior: 'smooth' });
-      }, 380);
+      // ★ 先 scroll，再改 state：
+      //   讓 viewport 在動畫開始前就鎖到 B 的標題列頂端。
+      //   A 收合時在 viewport 上方縮小，scroll anchoring 自動維持 B 的位置。
+      //   B 展開時往下撐，也不影響頂部位置。
+      const el = document.getElementById(`history-item-${id}`);
+      if (el) {
+        const navH = window.innerWidth >= 768 ? 72 : 104;
+        window.scrollTo({
+          top: el.getBoundingClientRect().top + window.scrollY - navH - 8,
+        });
+      }
     }
+
+    setExpandedId(isOpening ? id : null);
   };
 
   const tabs: { id: HistoryTab; label: string }[] = [
