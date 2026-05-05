@@ -140,6 +140,7 @@ export default function App() {
   const [history, setHistory] = useState(() => getHistory(null));
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [historyAutoOpen, setHistoryAutoOpen] = useState<{ tab: 'prediction'; taskId: string } | null>(null);
+  const [quickPredicting, setQuickPredicting] = useState(false);
   const [watchlist, setWatchlist] = useState<ReturnType<typeof getWatchlist>>([]);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [selectedDuration, setSelectedDuration] = useState('1w');
@@ -802,6 +803,7 @@ export default function App() {
       if (!currentUser) setLoginOpen(true);
       return null;
     }
+    setQuickPredicting(true);
     try {
       const result = await analyzeSingleStock({
         ticker: ticker.toUpperCase(),
@@ -823,6 +825,8 @@ export default function App() {
       return { price: result.targetPrice ?? 0, taskId };
     } catch {
       return null;
+    } finally {
+      setQuickPredicting(false);
     }
   };
 
@@ -874,25 +878,28 @@ export default function App() {
         </motion.button>
 
         <div className="flex items-center gap-1">
-          {navItems.map(({ id, label }) => (
-            <motion.button
-              key={id}
-              onClick={() => switchTab(id)}
-              disabled={loading && activeTab !== id}
-              className={cn(
-                'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                activeTab === id
-                  ? 'text-white bg-gradient-to-r from-blue-600 to-blue-500'
-                  : loading
-                  ? 'text-slate-300 cursor-not-allowed'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              )}
-              whileHover={loading ? {} : { y: -1 }}
-              whileTap={loading ? {} : { scale: 0.97 }}
-            >
-              {label}
-            </motion.button>
-          ))}
+          {navItems.map(({ id, label }) => {
+            const isNavDisabled = quickPredicting || (loading && activeTab !== id);
+            return (
+              <motion.button
+                key={id}
+                onClick={() => !isNavDisabled && switchTab(id)}
+                disabled={isNavDisabled}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                  activeTab === id
+                    ? 'text-white bg-gradient-to-r from-blue-600 to-blue-500'
+                    : isNavDisabled
+                    ? 'text-slate-300 cursor-not-allowed'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                )}
+                whileHover={isNavDisabled ? {} : { y: -1 }}
+                whileTap={isNavDisabled ? {} : { scale: 0.97 }}
+              >
+                {label}
+              </motion.button>
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-3">
@@ -959,23 +966,26 @@ export default function App() {
           </div>
         </div>
         <div className="flex justify-center px-1.5 pb-2 gap-0.5 overflow-x-auto no-scrollbar">
-          {navItems.map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => switchTab(id)}
-              disabled={loading && activeTab !== id}
-              className={cn(
-                'px-2 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0',
-                activeTab === id
-                  ? 'text-white bg-gradient-to-r from-blue-600 to-blue-500'
-                  : loading
-                  ? 'text-slate-300 cursor-not-allowed'
-                  : 'text-slate-600'
-              )}
-            >
-              {label}
-            </button>
-          ))}
+          {navItems.map(({ id, label }) => {
+            const isNavDisabled = quickPredicting || (loading && activeTab !== id);
+            return (
+              <button
+                key={id}
+                onClick={() => !isNavDisabled && switchTab(id)}
+                disabled={isNavDisabled}
+                className={cn(
+                  'px-2 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0',
+                  activeTab === id
+                    ? 'text-white bg-gradient-to-r from-blue-600 to-blue-500'
+                    : isNavDisabled
+                    ? 'text-slate-300 cursor-not-allowed'
+                    : 'text-slate-600'
+                )}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </nav>
 
