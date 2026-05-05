@@ -37,20 +37,6 @@ function formatDate(dateStr: string): string {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-const tickerColors: Record<string, string> = {
-  A: 'bg-blue-600', B: 'bg-emerald-600', C: 'bg-purple-600', D: 'bg-amber-600',
-  E: 'bg-rose-600', F: 'bg-cyan-600', G: 'bg-indigo-600', H: 'bg-teal-600',
-  I: 'bg-orange-600', J: 'bg-pink-600', K: 'bg-lime-600', L: 'bg-violet-600',
-  M: 'bg-blue-500', N: 'bg-emerald-500', O: 'bg-purple-500', P: 'bg-amber-500',
-  Q: 'bg-rose-500', R: 'bg-cyan-500', S: 'bg-indigo-500', T: 'bg-teal-500',
-  U: 'bg-orange-500', V: 'bg-violet-500', W: 'bg-pink-500', X: 'bg-lime-500',
-  Y: 'bg-blue-400', Z: 'bg-emerald-400',
-};
-
-function getTickerColor(ticker: string): string {
-  const firstLetter = ticker.charAt(0).toUpperCase();
-  return tickerColors[firstLetter] || 'bg-blue-600';
-}
 
 export default function WatchlistSection({
   items,
@@ -133,11 +119,6 @@ export default function WatchlistSection({
           >
             {/* Main row */}
             <div className="flex items-start gap-3 md:gap-4">
-
-              {/* Avatar — smaller on mobile */}
-              <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl ${getTickerColor(item.ticker)} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                <span className="text-sm md:text-lg font-bold text-white">{item.ticker.charAt(0)}</span>
-              </div>
 
               {/* Info (takes all remaining space) */}
               <div className="flex-1 min-w-0">
