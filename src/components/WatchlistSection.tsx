@@ -122,31 +122,41 @@ export default function WatchlistSection({
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.08 }}
-            className="glass-card p-5 md:p-6"
+            className="glass-card p-4 md:p-5"
           >
             {/* Main row */}
-            <div className="flex items-center gap-4">
-              {/* Avatar */}
-              <div className={`w-12 h-12 rounded-xl ${getTickerColor(item.ticker)} flex items-center justify-center flex-shrink-0`}>
-                <span className="text-lg font-bold text-white">{item.ticker.charAt(0)}</span>
+            <div className="flex items-start gap-3 md:gap-4">
+
+              {/* Avatar — smaller on mobile */}
+              <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl ${getTickerColor(item.ticker)} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                <span className="text-sm md:text-lg font-bold text-white">{item.ticker.charAt(0)}</span>
               </div>
 
-              {/* Info */}
+              {/* Info (takes all remaining space) */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 mb-0.5">
-                  <h3 className="text-base font-bold text-slate-900">{item.ticker}</h3>
-                  <span className="px-2.5 py-0.5 rounded-md bg-slate-100 text-xs text-slate-500">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <h3 className="text-base font-bold text-slate-900 leading-tight">{item.ticker}</h3>
+                  <span className="px-2 py-0.5 rounded-md bg-slate-100 text-[11px] text-slate-500 flex-shrink-0">
                     {formatDate(item.addedAt)}
                   </span>
                 </div>
                 <p className="text-sm text-slate-500 truncate">
                   {(item.name && item.name !== item.ticker) ? item.name : (getStockName(item.ticker) ?? item.ticker)}
                 </p>
+                {/* Price — mobile only, shown below name */}
+                {item.currentPrice && (
+                  <div className="flex items-baseline gap-1 mt-1.5 md:hidden">
+                    <span className="text-[11px] text-slate-400">{t('watchlist.current.price')}</span>
+                    <span className="text-base font-bold text-slate-900 font-data">
+                      NT${parseFloat(item.currentPrice).toFixed(2)}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Current Price */}
+              {/* Price — desktop only, large on the right */}
               {item.currentPrice && (
-                <div className="text-right flex-shrink-0">
+                <div className="hidden md:block text-right flex-shrink-0">
                   <p className="text-xs text-slate-400 mb-0.5">{t('watchlist.current.price')}</p>
                   <p className="text-2xl font-bold text-slate-900 font-data">
                     NT${parseFloat(item.currentPrice).toFixed(2)}
@@ -154,47 +164,51 @@ export default function WatchlistSection({
                 </div>
               )}
 
-              {/* Quick Predict (隔日) */}
-              {onQuickPredict && (
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => handleQuickPredict(item.ticker)}
-                  disabled={quickPredicts[item.ticker]?.loading}
-                  className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center hover:bg-amber-100 transition-colors flex-shrink-0 disabled:opacity-50"
-                  aria-label={t('watchlist.quickPredict')}
-                  title={t('watchlist.quickPredict')}
-                >
-                  {quickPredicts[item.ticker]?.loading
-                    ? <Loader className="w-4 h-4 text-amber-500 animate-spin" />
-                    : <Zap className="w-4 h-4 text-amber-500" />
-                  }
-                </motion.button>
-              )}
+              {/* Action buttons — smaller on mobile */}
+              <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
 
-              {/* Full Predict */}
-              {onAnalyze && (
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => onAnalyze(item.ticker)}
-                  className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center hover:bg-blue-100 transition-colors flex-shrink-0"
-                  aria-label={t('cta.analyze')}
-                  title={t('cta.analyze')}
-                >
-                  <LineChart className="w-4 h-4 text-blue-600" />
-                </motion.button>
-              )}
+                {/* Quick Predict ⚡ */}
+                {onQuickPredict && (
+                  <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.94 }}
+                    onClick={() => handleQuickPredict(item.ticker)}
+                    disabled={quickPredicts[item.ticker]?.loading}
+                    className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center hover:bg-amber-100 transition-colors flex-shrink-0 disabled:opacity-50"
+                    aria-label={t('watchlist.quickPredict')}
+                    title={t('watchlist.quickPredict')}
+                  >
+                    {quickPredicts[item.ticker]?.loading
+                      ? <Loader className="w-3.5 h-3.5 md:w-4 md:h-4 text-amber-500 animate-spin" />
+                      : <Zap className="w-3.5 h-3.5 md:w-4 md:h-4 text-amber-500" />
+                    }
+                  </motion.button>
+                )}
 
-              {/* Delete */}
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => onRemove(item.ticker)}
-                className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center hover:bg-amber-50 hover:border-amber-300 transition-colors flex-shrink-0"
-              >
-                <Trash2 className="w-4 h-4 text-slate-500" />
-              </motion.button>
+                {/* Full Predict 📊 */}
+                {onAnalyze && (
+                  <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.94 }}
+                    onClick={() => onAnalyze(item.ticker)}
+                    className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center hover:bg-blue-100 transition-colors flex-shrink-0"
+                    aria-label={t('cta.analyze')}
+                    title={t('cta.analyze')}
+                  >
+                    <LineChart className="w-3.5 h-3.5 md:w-4 md:h-4 text-blue-600" />
+                  </motion.button>
+                )}
+
+                {/* Delete 🗑 */}
+                <motion.button
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.94 }}
+                  onClick={() => onRemove(item.ticker)}
+                  className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center hover:bg-red-50 hover:border-red-200 transition-colors flex-shrink-0"
+                >
+                  <Trash2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-slate-400" />
+                </motion.button>
+              </div>
             </div>
 
             {/* Quick Predict Result Row */}
@@ -205,20 +219,20 @@ export default function WatchlistSection({
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="mt-4 pt-3 border-t border-slate-100"
+                  className="mt-3 pt-3 border-t border-slate-100"
                 >
                   {quickPredicts[item.ticker].error ? (
                     <p className="text-xs text-red-400">{t('watchlist.quickPredict.error')}</p>
                   ) : (
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-xs text-slate-400 mb-0.5">
+                        <p className="text-[11px] text-slate-400 mb-0.5">
                           {t('watchlist.quickPredict.label')}
-                          <span className="ml-1.5 font-medium text-amber-500">
+                          <span className="ml-1.5 font-semibold text-amber-500">
                             {quickPredicts[item.ticker].date}
                           </span>
                         </p>
-                        <p className="text-xl font-bold text-amber-600 font-data">
+                        <p className="text-lg md:text-xl font-bold text-amber-600 font-data">
                           NT${quickPredicts[item.ticker].price!.toFixed(2)}
                         </p>
                       </div>
