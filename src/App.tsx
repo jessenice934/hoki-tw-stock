@@ -934,7 +934,7 @@ export default function App() {
       </nav>
 
       {/* Mobile Navigation */}
-      <nav className="md:hidden fixed top-0 left-0 right-0 z-50 bg-white backdrop-blur-xl border-b border-gray-200/60">
+      <nav className="md:hidden fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-200/60" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="flex items-center justify-between px-4 py-3">
           <motion.button
             onClick={() => switchTab('home')}

@@ -94,8 +94,8 @@
 }
 
 @layer base {
-  html {
-    background-color: #ffffff; /* iOS status bar reads this — keep white */
+  html, body {
+    background-color: #ffffff; /* iOS status bar / safe area / overscroll — keep white */
   }
 
   body {
