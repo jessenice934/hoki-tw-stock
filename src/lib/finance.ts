@@ -20,6 +20,39 @@ export function normalizeTwTicker(ticker: string): string {
   return t;
 }
 
+/**
+ * 上市用 .TW，上櫃用 .TWO。
+ * 先嘗試 .TW，若回傳空資料或 404，改用 .TWO 重試，並記憶結果（24h TTL）。
+ */
+const suffixCache: Record<string, { sym: string; timestamp: number }> = {};
+const SUFFIX_TTL = 24 * 60 * 60 * 1000;
+
+async function resolveYahooSymbol(ticker: string): Promise<string> {
+  const base = normalizeTwTicker(ticker);
+  // 非台股純數字 ticker → 不需要偵測
+  if (!base.endsWith('.TW')) return base;
+
+  const cached = suffixCache[base];
+  if (cached && Date.now() - cached.timestamp < SUFFIX_TTL) return cached.sym;
+
+  // 嘗試 .TW
+  try {
+    const resp = await fetch(`/api/yahoo/v8/finance/chart/${encodeURIComponent(base)}?interval=1d&range=1d`);
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json?.chart?.result?.[0]?.meta?.symbol) {
+        suffixCache[base] = { sym: base, timestamp: Date.now() };
+        return base;
+      }
+    }
+  } catch { /* fall through */ }
+
+  // Fallback：試 .TWO（上櫃）
+  const two = base.replace(/\.TW$/, '.TWO');
+  suffixCache[base] = { sym: two, timestamp: Date.now() };
+  return two;
+}
+
 // ────────────────────────────────────────────────────────────
 // Interfaces
 // ────────────────────────────────────────────────────────────
@@ -157,7 +190,7 @@ export async function fetchHistoricalPrices(
   ticker: string,
   days: number = 60,
 ): Promise<HistoricalPrice[]> {
-  const yahooSym = normalizeTwTicker(ticker);
+  const yahooSym = await resolveYahooSymbol(ticker);
   const key = `${yahooSym}:${days}`;
   const cached = historyCache[key];
   if (cached && Date.now() - cached.timestamp < HISTORY_CACHE_TTL) {
@@ -212,7 +245,7 @@ const nameCache: Record<string, { name: string; timestamp: number }> = {};
 const NAME_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
 
 export async function fetchTickerName(ticker: string): Promise<string | null> {
-  const yahooSym = normalizeTwTicker(ticker);
+  const yahooSym = await resolveYahooSymbol(ticker);
   const cached = nameCache[yahooSym];
   if (cached && Date.now() - cached.timestamp < NAME_CACHE_TTL) {
     return cached.name;
