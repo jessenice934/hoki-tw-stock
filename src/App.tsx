@@ -42,6 +42,9 @@ import {
   getDailyRemaining,
   getTrialState,
   startTrial,
+  syncHistoryFromCloud,
+  syncWatchlistFromCloud,
+  syncLessonsFromCloud,
 } from '@/lib/storage';
 import { reviewTask } from '@/lib/outcome';
 import { identifyUser, resetAnalytics, track } from '@/lib/analytics';
@@ -202,27 +205,28 @@ export default function App() {
 
   useEffect(() => {
     // Initial session + subscribe to auth state changes (login/logout/switch account)
-    fetchCurrentUser().then((user) => {
+    // On login: sync from Supabase first (merge cloud → localStorage), then set state
+    const handleUser = async (user: import('@/lib/auth').User | null) => {
       setCurrentUser(user);
-      setHistory(getHistory(user?.id));
-      setWatchlist(getWatchlist(user?.id));
       if (user) {
-        setDailyRemaining(getDailyRemaining(user.id));
-        identifyUser(user);
+        await Promise.all([
+          syncHistoryFromCloud(user.id),
+          syncWatchlistFromCloud(user.id),
+          syncLessonsFromCloud(user.id),
+        ]);
       }
-    });
-    const unsubscribe = onAuthChange((user) => {
-      setCurrentUser(user);
       setHistory(getHistory(user?.id));
       setWatchlist(getWatchlist(user?.id));
       if (user) {
         setDailyRemaining(getDailyRemaining(user.id));
         identifyUser(user);
       } else {
-        // 登出：把後續事件切回匿名
         resetAnalytics();
       }
-    });
+    };
+
+    fetchCurrentUser().then(handleUser);
+    const unsubscribe = onAuthChange(handleUser);
     return unsubscribe;
   }, []);
 

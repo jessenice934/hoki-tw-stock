@@ -1,3 +1,15 @@
+import {
+  cloudUpsertTask,
+  cloudPatchTask,
+  cloudDeleteTask,
+  cloudFetchHistory,
+  cloudUpsertWatchlistItem,
+  cloudDeleteWatchlistItem,
+  cloudFetchWatchlist,
+  cloudUpsertLesson,
+  cloudFetchLesson,
+} from './cloudStorage';
+
 export interface OutcomeEntry {
   ticker: string;
   startPrice: number;           // 起始價（建立分析時的 currentPrice）
@@ -67,6 +79,7 @@ export const saveTask = (task: InvestmentTask, userId?: string | null) => {
   const key = historyKey(userId);
   const history = getHistory(userId);
   localStorage.setItem(key, JSON.stringify([task, ...history]));
+  if (userId) cloudUpsertTask(task, userId).catch(() => {});
 };
 
 export const getHistory = (userId?: string | null): InvestmentTask[] => {
@@ -77,6 +90,7 @@ export const getHistory = (userId?: string | null): InvestmentTask[] => {
 export const removeTask = (id: string, userId?: string | null) => {
   const key = historyKey(userId);
   localStorage.setItem(key, JSON.stringify(getHistory(userId).filter(i => i.id !== id)));
+  if (userId) cloudDeleteTask(id, userId).catch(() => {});
 };
 
 export const clearHistory = (userId?: string | null) => {
@@ -93,6 +107,7 @@ export const updateTask = (
   const history = getHistory(userId);
   const next = history.map(t => (t.id === id ? { ...t, ...patch } : t));
   localStorage.setItem(key, JSON.stringify(next));
+  if (userId) cloudPatchTask(id, patch, userId).catch(() => {});
 };
 
 // ============================================================
@@ -128,6 +143,7 @@ export const saveSystemLesson = (
   userId?: string | null
 ) => {
   localStorage.setItem(lessonKey(lesson.scope, userId), JSON.stringify(lesson));
+  if (userId) cloudUpsertLesson(lesson, userId).catch(() => {});
 };
 
 export const clearSystemLesson = (
@@ -144,6 +160,7 @@ export const addToWatchlist = (item: WatchlistItem, userId: string) => {
   const list = getWatchlist(userId);
   if (!list.find(i => i.ticker === item.ticker)) {
     localStorage.setItem(watchlistKey(userId), JSON.stringify([item, ...list]));
+    cloudUpsertWatchlistItem(item, userId).catch(() => {});
   }
 };
 
@@ -158,6 +175,7 @@ export const removeFromWatchlist = (ticker: string, userId: string) => {
     watchlistKey(userId),
     JSON.stringify(getWatchlist(userId).filter(i => i.ticker !== ticker))
   );
+  cloudDeleteWatchlistItem(ticker, userId).catch(() => {});
 };
 
 export const updateWatchlistPrice = (ticker: string, price: string, userId: string) => {
@@ -165,6 +183,8 @@ export const updateWatchlistPrice = (ticker: string, price: string, userId: stri
     item.ticker === ticker ? { ...item, currentPrice: price } : item
   );
   localStorage.setItem(watchlistKey(userId), JSON.stringify(updated));
+  const updatedItem = updated.find(i => i.ticker === ticker);
+  if (updatedItem) cloudUpsertWatchlistItem(updatedItem, userId).catch(() => {});
 };
 
 // ============================================================
@@ -243,3 +263,94 @@ export const getAnalysesRemaining = (currentUser: any): number => {
   }
   return Infinity; // 初期開放：登入後無限制
 };
+
+// ============================================================
+// Cloud Sync — 登入時呼叫，把雲端資料合併到 localStorage
+// 策略：以 ID 為主鍵做 union merge，不覆蓋、不刪除，只增補
+// ============================================================
+
+/**
+ * 同步歷史紀錄：
+ * 1. 雲端沒資料 → 把本地資料上傳（舊裝置遷移）
+ * 2. 雲端有資料 → 把本地獨有的紀錄補上去，再把合併結果存回 localStorage
+ */
+export async function syncHistoryFromCloud(userId: string): Promise<void> {
+  try {
+    const cloudRecords = await cloudFetchHistory(userId);
+    const local = getHistory(userId);
+
+    if (cloudRecords.length === 0) {
+      // 新裝置或首次使用雲端 — 上傳本地資料
+      if (local.length > 0) {
+        await Promise.allSettled(local.map(t => cloudUpsertTask(t, userId)));
+      }
+      return;
+    }
+
+    // 找出本地有、雲端沒有的紀錄 → 上傳
+    const cloudIds = new Set(cloudRecords.map(r => r.id));
+    const localOnly = local.filter(r => !cloudIds.has(r.id));
+    if (localOnly.length > 0) {
+      await Promise.allSettled(localOnly.map(t => cloudUpsertTask(t, userId)));
+    }
+
+    // 合併後按日期排序，寫回 localStorage
+    const merged = [...cloudRecords, ...localOnly].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    localStorage.setItem(historyKey(userId), JSON.stringify(merged));
+  } catch (e) {
+    console.warn('[sync] syncHistoryFromCloud failed:', e);
+  }
+}
+
+/**
+ * 同步自選股：
+ * 雲端為主，本地獨有的補上雲端。
+ */
+export async function syncWatchlistFromCloud(userId: string): Promise<void> {
+  try {
+    const cloudItems = await cloudFetchWatchlist(userId);
+    const local = getWatchlist(userId);
+
+    if (cloudItems.length === 0) {
+      if (local.length > 0) {
+        await Promise.allSettled(local.map(item => cloudUpsertWatchlistItem(item, userId)));
+      }
+      return;
+    }
+
+    const cloudTickers = new Set(cloudItems.map(i => i.ticker));
+    const localOnly = local.filter(i => !cloudTickers.has(i.ticker));
+    if (localOnly.length > 0) {
+      await Promise.allSettled(localOnly.map(item => cloudUpsertWatchlistItem(item, userId)));
+    }
+
+    const merged = [...cloudItems, ...localOnly];
+    localStorage.setItem(watchlistKey(userId), JSON.stringify(merged));
+  } catch (e) {
+    console.warn('[sync] syncWatchlistFromCloud failed:', e);
+  }
+}
+
+/**
+ * 同步 AI 自學紀錄（recommendation / prediction 兩種）
+ */
+export async function syncLessonsFromCloud(userId: string): Promise<void> {
+  try {
+    const scopes: LessonScope[] = ['recommendation', 'prediction'];
+    await Promise.allSettled(
+      scopes.map(async scope => {
+        const cloudLesson = await cloudFetchLesson(scope, userId);
+        if (cloudLesson) {
+          localStorage.setItem(lessonKey(scope, userId), JSON.stringify(cloudLesson));
+        } else {
+          const local = getSystemLesson(scope, userId);
+          if (local) cloudUpsertLesson(local, userId).catch(() => {});
+        }
+      })
+    );
+  } catch (e) {
+    console.warn('[sync] syncLessonsFromCloud failed:', e);
+  }
+}
