@@ -217,11 +217,6 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
                       isExpanded && 'border-blue-200 bg-blue-50/30 rounded-b-none'
                     )}
                   >
-                    {/* Icon */}
-                    <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center flex-shrink-0">
-                      <Clock className="w-5 h-5 text-emerald-600" />
-                    </div>
-
                     {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-1 flex-wrap">
