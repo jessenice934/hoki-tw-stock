@@ -94,6 +94,10 @@
 }
 
 @layer base {
+  html {
+    background-color: #ffffff; /* iOS status bar reads this — keep white */
+  }
+
   body {
     background-color: var(--color-paper);
     color: var(--color-ink);
