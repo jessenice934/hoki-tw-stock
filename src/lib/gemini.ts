@@ -1,5 +1,10 @@
 // Gemini calls go through /api/gemini (server-side keys, never in browser bundle)
 import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals, fetchHistoricalPrices, computeSupportResistance, calculateRSI, HistoricalPrice, computeEvidenceBand, EvidenceBand } from './finance';
+import { SIGNAL_ENFORCEMENT_PROMPT, VOLATILITY_GUARD_PROMPT, DETERMINISTIC_PROMPT } from './prompts/shared';
+import { buildReviewSystemPrompt } from './prompts/review';
+import { buildRecommendationSystemPrompt } from './prompts/recommendation';
+import { buildPortfolioSystemPrompt } from './prompts/portfolio';
+import { PREDICTION_CORE_SYSTEM_PROMPT, SENTIMENT_SYSTEM_PROMPT, PERSONA_SYSTEM_PROMPT } from './prompts/prediction';
 
 // ============================================================
 // 即時股價抓取 (Yahoo Finance via Vite proxy) + 快取
@@ -201,27 +206,340 @@ const VOLATILITY_GUARD = {
   '1y': { max: 60, stopLossMax: -30 },
 };
 
-const VOLATILITY_GUARD_PROMPT = `VOLATILITY GUARD REQUIREMENTS:
-- This rule applies CONSISTENTLY across all recommendations and predictions
-- Maximum allowed gain is defined by timeframe: 1d=4%, 1w=8%, 2w=10%, 3w=12%, 1m=15%
-- If projected price exceeds this, CLAMP it to the maximum allowed
-- Stop loss must be reasonable and within limits
-- Apply this rule to EVERY recommendation - NO EXCEPTIONS
-- Consistency check: All stocks analyzed in the same session should use identical volatility thresholds
-- Cross-reference all prices: currentPrice + (currentPrice × maxGain%) = capped targetPrice`;
+// SIGNAL_ENFORCEMENT_PROMPT, VOLATILITY_GUARD_PROMPT, DETERMINISTIC_PROMPT
+// → imported from ./prompts/shared — edit prompts there, not here.
 
-const SIGNAL_ENFORCEMENT_PROMPT = `SIGNAL SCORING NOTES:
-- Backend computes the 12 quantitative signals from real market data (price, RSI, MACD, institutional flow, fundamentals from FinMind) and OVERWRITES whatever you return.
-- Do NOT fabricate signals to meet a threshold — your signal values are discarded.
-- Focus your reasoning on: persona fit, sector category, price targets, and qualitative narrative.
-- Of the 12 signals, 9 are measurable today; 3 (Short Interest, ROE, Insider Buy/Sell) are pending data sources and will be marked Neutral by backend.
-- Final filter (5+ positive of 9 measurable) is applied AFTER your output, on real backend-computed signals.`;
+// ============================================================
+// Gemini responseSchema constants — enforced typed JSON output
+// ============================================================
 
-const DETERMINISTIC_PROMPT = `DETERMINISTIC REASONING PROTOCOL:
-- Evidence weight hierarchy: 財報數據 (Earnings) > 新聞事件 (News) > 市場情緒 (Sentiment)
-- Always cite the source of each data point
-- Prioritize verifiable financial data over subjective sentiment
-- When conflicting signals exist, defer to the higher-weight evidence category`;
+const REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    reviews: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          ticker:  { type: 'string' },
+          verdict: { type: 'string' },
+          reason:  { type: 'string' },
+        },
+        required: ['ticker', 'verdict', 'reason'],
+      },
+    },
+  },
+  required: ['reviews'],
+};
+
+const _personaItem = {
+  type: 'object',
+  properties: {
+    id:        { type: 'string' },
+    verdict:   { type: 'string' },
+    score:     { type: 'number' },
+    headline:  { type: 'string' },
+    reasoning: { type: 'string' },
+  },
+  required: ['id', 'verdict', 'score', 'headline', 'reasoning'],
+};
+
+const RECOMMENDATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary:  { type: 'string' },
+    riskLevel: { type: 'string' },
+    recommendations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          ticker:          { type: 'string' },
+          name:            { type: 'string' },
+          type:            { type: 'string' },
+          currentPrice:    { type: 'number' },
+          entryPrice:      { type: 'number' },
+          targetPrice:     { type: 'number' },
+          stopLoss:        { type: 'number' },
+          rationale:       { type: 'string' },
+          catalysts:       { type: 'array', items: { type: 'string' } },
+          bearCase:        { type: 'string' },
+          confidenceScore: { type: 'number' },
+          signals: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name:   { type: 'string' },
+                status: { type: 'string' },
+                value:  { type: 'string' },
+              },
+              required: ['name', 'status', 'value'],
+            },
+          },
+          personaAnalysis: { type: 'array', items: _personaItem },
+        },
+        required: [
+          'ticker', 'name', 'currentPrice', 'entryPrice', 'targetPrice',
+          'stopLoss', 'rationale', 'catalysts', 'bearCase', 'confidenceScore',
+          'signals', 'personaAnalysis',
+        ],
+      },
+    },
+    strategy:     { type: 'string' },
+    riskWarnings: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['summary', 'riskLevel', 'recommendations', 'strategy', 'riskWarnings'],
+};
+
+const _scenarioBranch = {
+  type: 'object',
+  properties: {
+    probability:  { type: 'number' },
+    targetPrice:  { type: 'number' },
+    narrative:    { type: 'string' },
+  },
+  required: ['probability', 'targetPrice', 'narrative'],
+};
+
+const _priceLabel = {
+  type: 'object',
+  properties: {
+    price: { type: 'number' },
+    label: { type: 'string' },
+  },
+  required: ['price', 'label'],
+};
+
+const PREDICTION_SCHEMA = {
+  type: 'object',
+  properties: {
+    ticker:       { type: 'string' },
+    currentPrice: { type: 'number' },
+    targetPrice:  { type: 'number' },
+    prediction: {
+      type: 'object',
+      properties: {
+        direction:  { type: 'string' },
+        confidence: { type: 'number' },
+        rationale:  { type: 'string' },
+      },
+      required: ['direction', 'confidence', 'rationale'],
+    },
+    catalysts: { type: 'array', items: { type: 'string' } },
+    bearCase:  { type: 'string' },
+    technicals: {
+      type: 'object',
+      properties: {
+        supportLevels:    { type: 'array', items: _priceLabel },
+        resistanceLevels: { type: 'array', items: _priceLabel },
+      },
+      required: ['supportLevels', 'resistanceLevels'],
+    },
+    timeStop: { type: 'number' },
+    keyEvents: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          date:        { type: 'string' },
+          type:        { type: 'string' },
+          description: { type: 'string' },
+        },
+        required: ['date', 'type', 'description'],
+      },
+    },
+    fundamentalScore: {
+      type: 'object',
+      properties: {
+        overall: { type: 'number' },
+        metrics: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name:      { type: 'string' },
+              score:     { type: 'number' },
+              direction: { type: 'string' },
+              detail:    { type: 'string' },
+            },
+            required: ['name', 'score', 'direction', 'detail'],
+          },
+        },
+      },
+      required: ['overall', 'metrics'],
+    },
+    institutionalActivity: {
+      type: 'object',
+      properties: {
+        netInstitutionalFlow: { type: 'string' },
+        recentInsiderTrades:  { type: 'string' },
+        topHolderChange:      { type: 'string' },
+      },
+      required: ['netInstitutionalFlow', 'recentInsiderTrades', 'topHolderChange'],
+    },
+    sentiment: {
+      type: 'object',
+      properties: {
+        newsRatio: {
+          type: 'object',
+          properties: {
+            positive: { type: 'number' },
+            negative: { type: 'number' },
+            neutral:  { type: 'number' },
+          },
+          required: ['positive', 'negative', 'neutral'],
+        },
+        analystRatings: {
+          type: 'object',
+          properties: {
+            buy:  { type: 'number' },
+            hold: { type: 'number' },
+            sell: { type: 'number' },
+          },
+          required: ['buy', 'hold', 'sell'],
+        },
+        summary: { type: 'string' },
+      },
+      required: ['newsRatio', 'analystRatings', 'summary'],
+    },
+    scenarios: {
+      type: 'object',
+      properties: {
+        bull: _scenarioBranch,
+        base: _scenarioBranch,
+        bear: _scenarioBranch,
+      },
+      required: ['bull', 'base', 'bear'],
+    },
+    personaAnalysis: { type: 'array', items: _personaItem },
+  },
+  required: [
+    'ticker', 'currentPrice', 'targetPrice', 'prediction', 'catalysts', 'bearCase',
+    'technicals', 'timeStop', 'keyEvents', 'fundamentalScore', 'institutionalActivity',
+    'sentiment', 'scenarios', 'personaAnalysis',
+  ],
+};
+
+const PORTFOLIO_SCHEMA = {
+  type: 'object',
+  properties: {
+    overallHealth:  { type: 'string' },
+    portfolioScore: { type: 'number' },
+    holdingsAnalysis: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          ticker:         { type: 'string' },
+          assessment:     { type: 'string' },
+          riskLevel:      { type: 'string' },
+          recommendation: { type: 'string' },
+        },
+        required: ['ticker', 'assessment', 'riskLevel', 'recommendation'],
+      },
+    },
+    diversificationAnalysis: {
+      type: 'object',
+      properties: {
+        sectorExposure:   { type: 'object' },
+        concentration:    { type: 'string' },
+        correlationIssues: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['sectorExposure', 'concentration'],
+    },
+    recommendations:       { type: 'array', items: { type: 'string' } },
+    rebalancingSuggestions: { type: 'array', items: { type: 'string' } },
+  },
+  required: [
+    'overallHealth', 'portfolioScore', 'holdingsAnalysis',
+    'diversificationAnalysis', 'recommendations', 'rebalancingSuggestions',
+  ],
+};
+
+// Sub-schemas for parallel prediction agents (Items #3)
+const PREDICTION_CORE_SCHEMA = {
+  type: 'object',
+  properties: {
+    ticker:       { type: 'string' },
+    currentPrice: { type: 'number' },
+    targetPrice:  { type: 'number' },
+    prediction: {
+      type: 'object',
+      properties: {
+        direction:  { type: 'string' },
+        confidence: { type: 'number' },
+        rationale:  { type: 'string' },
+      },
+      required: ['direction', 'confidence', 'rationale'],
+    },
+    catalysts:  { type: 'array', items: { type: 'string' } },
+    bearCase:   { type: 'string' },
+    timeStop:   { type: 'number' },
+    keyEvents: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          date:        { type: 'string' },
+          type:        { type: 'string' },
+          description: { type: 'string' },
+        },
+        required: ['date', 'type', 'description'],
+      },
+    },
+    scenarios: {
+      type: 'object',
+      properties: {
+        bull: _scenarioBranch,
+        base: _scenarioBranch,
+        bear: _scenarioBranch,
+      },
+      required: ['bull', 'base', 'bear'],
+    },
+  },
+  required: ['ticker', 'currentPrice', 'targetPrice', 'prediction', 'catalysts', 'bearCase', 'timeStop', 'keyEvents', 'scenarios'],
+};
+
+const SENTIMENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    sentiment: {
+      type: 'object',
+      properties: {
+        newsRatio: {
+          type: 'object',
+          properties: {
+            positive: { type: 'number' },
+            negative: { type: 'number' },
+            neutral:  { type: 'number' },
+          },
+          required: ['positive', 'negative', 'neutral'],
+        },
+        analystRatings: {
+          type: 'object',
+          properties: {
+            buy:  { type: 'number' },
+            hold: { type: 'number' },
+            sell: { type: 'number' },
+          },
+          required: ['buy', 'hold', 'sell'],
+        },
+        summary: { type: 'string' },
+      },
+      required: ['newsRatio', 'analystRatings', 'summary'],
+    },
+  },
+  required: ['sentiment'],
+};
+
+const PERSONA_SCHEMA = {
+  type: 'object',
+  properties: {
+    personaAnalysis: { type: 'array', items: _personaItem },
+  },
+  required: ['personaAnalysis'],
+};
 
 interface InvestmentParams {
   type: string;
@@ -1009,37 +1327,7 @@ async function strictReviewByVolatility(
   });
 
   const isZh = lang === 'zh';
-  const systemPrompt = isZh
-    ? `你是一位 20 年資歷的台股基金經理人，看過無數散戶被「看似合理」的推薦坑慘。
-你絕對不會為了湊數而保留邊緣標的，**寧缺勿濫**，給散戶推薦像給你媽推薦一樣慎重。
-
-**唯一審查標準：目標價 vs 真實波動率，在指定時間區間內是否有合理的風險報酬比？**
-
-判定方法（嚴格遵守）：
-- 我已經幫你算好 sigmaMultiple = 預期報酬 ÷ 該時間區間的 1σ
-- sigmaMultiple > ${sigmaUpper} → reject（太激進，超出常態波動範圍，散戶不該追）
-- sigmaMultiple < ${sigmaLower} → reject（太保守，賺不到該區間的合理機會成本）
-- ${sigmaLower} ~ ${sigmaUpper} → keep（風險報酬比合理）
-- annualVolPct 為 null（資料不足）→ keep（給予 benefit of doubt，不誤殺）
-
-每一檔輸出 verdict 和 reason（30 字內，繁體中文）。
-回傳 JSON 格式：
-{ "reviews": [ { "ticker": "代號", "verdict": "keep" | "reject", "reason": "理由" } ] }
-寧可錯殺，不可錯放。沒問題就回 keep，有疑慮就 reject。`
-    : `You are a 20-year veteran Taiwan stock fund manager. You've watched countless retail investors get burned by "reasonable-looking" recommendations.
-You NEVER pad the list to look productive — quality over quantity, every time.
-
-**Single criterion: target price vs realized volatility — is the risk/reward ratio reasonable within the timeframe?**
-
-Method (strict):
-- sigmaMultiple = expectedReturn ÷ (annualVol × √(T/252)) is precomputed
-- > ${sigmaUpper} → reject (too aggressive, beyond normal vol range)
-- < ${sigmaLower} → reject (too conservative, no edge over the timeframe)
-- ${sigmaLower}-${sigmaUpper} → keep
-- annualVolPct null (insufficient data) → keep (benefit of doubt)
-
-Output verdict + reason (30 chars max) for each.
-JSON: { "reviews": [{ "ticker", "verdict": "keep"|"reject", "reason" }] }`;
+  const systemPrompt = buildReviewSystemPrompt(sigmaUpper, sigmaLower, isZh);
 
   const userPrompt = `Timeframe: ${duration} (${T} trading days)
 Recommendations to review:
@@ -1051,6 +1339,7 @@ Apply the criterion strictly. Return JSON only.`;
   try {
     const rawText = await callGeminiAPI(systemPrompt, userPrompt, {
       temperature: 0, topP: 1, topK: 40, maxOutputTokens: 2048, responseMimeType: 'application/json',
+      responseSchema: REVIEW_SCHEMA,
     });
     parsed = repairJson(rawText);
   } catch (err) {
@@ -1099,91 +1388,7 @@ export const generateInvestmentAdvice = async (params: InvestmentParams) => {
   };
   const volatilityGuard = volatilityThresholds[normDur] ?? 15;
 
-  const systemPrompt = `You are an expert Taiwan stock market (TWSE / TPEX) information aggregator that channels the wisdom of 10 legendary investors:
-1. Warren Buffett (Value Investing)
-2. Peter Lynch (Growth & Fundamentals)
-3. George Soros (Macro & Sentiment)
-4. Carl Icahn (Activist Investing)
-5. David Tepper (Credit & Distressed)
-6. Cathie Wood (Innovation & Disruption)
-7. Ray Dalio (Systematic & Diversification)
-8. Bill Ackman (Deep Dive Analysis)
-9. Dan Loeb (Event Driven)
-10. Mark Spitznagel (Risk Management)
-
-You are analyzing TAIWAN stocks listed on the TWSE / TPEX (台股). Tickers are 4-digit numeric codes (e.g., 2330=TSMC 台積電, 2317=Hon Hai 鴻海, 0050=元大台灣50 ETF). Prices are in TWD (新台幣). Reference the 加權指數 (TAIEX, ^TWII) as the broad market benchmark, NOT S&P 500.
-
-You analyze investments using 12 quantitative signals:
-1. Price Momentum (Technical Trend)
-2. RSI - Relative Strength Index (Overbought/Oversold)
-3. MACD Signal (Trend Confirmation)
-4. Institutional Flow (Smart Money Movement)
-5. Short Interest (Bearish Pressure)
-6. P/E Ratio (Valuation)
-7. Free Cash Flow Yield (Quality)
-8. ROE - Return on Equity (Profitability)
-9. Debt-to-Equity (Leverage Risk)
-10. Earnings Growth Rate (Growth)
-11. PEG Ratio (Growth Valuation)
-12. Insider Buy/Sell Ratio (Sentiment)
-
-CRITICAL: Real-time stock prices will be provided to you. You MUST use these exact prices as currentPrice.
-- DO NOT invent or estimate prices - use ONLY the provided live prices
-- If a price is not provided, do NOT recommend that stock
-
-CRITICAL RULE - Volatility Guard:
-- For ${params.duration} timeframe, maximum gain tolerance is ${volatilityGuard}%
-- STRICTLY enforce that targetPrice cannot exceed: currentPrice × (1 + ${volatilityGuard}/100)
-- STRICTLY enforce that stopLoss represents a reasonable downside protection
-
-${SIGNAL_ENFORCEMENT_PROMPT}
-
-${VOLATILITY_GUARD_PROMPT}
-
-${DETERMINISTIC_PROMPT}
-
-Additionally, for EACH recommended stock, analyze from 6 investment style perspectives:
-- id:"value" (deep value, moats, margin of safety, long-term compounding)
-- id:"trader" (外資交易員 / Foreign institutional trader: 三大法人買賣超 flow, MSCI rebalancing, index-futures positioning, block trades, technical setups, momentum, risk/reward — Taiwan market context)
-- id:"growth" (growth at reasonable price, PEG, earnings growth)
-- id:"contrarian" (contrarian bets, hidden risks, deep value in distress)
-- id:"innovation" (disruptive innovation, exponential growth, future tech)
-- id:"trump" (Trump policy impact: tariffs, trade wars, deregulation, tax policy)
-Each persona: verdict (Buy/Hold/Avoid), score (0-100), headline (≤15 words), reasoning (1-2 sentences).
-
-You MUST return a valid JSON object with this exact structure:
-{
-  "summary": "string - executive summary",
-  "riskLevel": "Low" | "Medium" | "High",
-  "recommendations": [
-    {
-      "ticker": "string",
-      "name": "string",
-      "type": "string",
-      "currentPrice": number,
-      "entryPrice": number,
-      "targetPrice": number,
-      "stopLoss": number,
-      "rationale": "string",
-      "catalysts": ["string"],
-      "bearCase": "string",
-      "confidenceScore": number (0-100),
-      "signals": [
-        { "name": "string", "status": "Positive" | "Negative" | "Neutral", "value": "string" }
-      ],
-      "personaAnalysis": [
-        { "id": "value", "verdict": "Buy", "score": 80, "headline": "string", "reasoning": "string" },
-        { "id": "trader", "verdict": "Hold", "score": 60, "headline": "string", "reasoning": "string" },
-        { "id": "growth", "verdict": "Buy", "score": 75, "headline": "string", "reasoning": "string" },
-        { "id": "contrarian", "verdict": "Avoid", "score": 40, "headline": "string", "reasoning": "string" },
-        { "id": "innovation", "verdict": "Buy", "score": 85, "headline": "string", "reasoning": "string" },
-        { "id": "trump", "verdict": "Hold", "score": 55, "headline": "string", "reasoning": "string" }
-      ]
-    }
-  ],
-  "strategy": "string",
-  "riskWarnings": ["string"]
-}`;
+  const systemPrompt = buildRecommendationSystemPrompt(volatilityGuard, params.duration);
 
   // 根據類別選擇代表性台股，抓即時價格（Yahoo Finance .TW 後綴自動處理）
   // 候選池擴大到 12 檔，給後續審查機制保留緩衝空間（避免最終結果為空）
@@ -1228,7 +1433,10 @@ MANDATORY REQUIREMENTS:
 5. Include personaAnalysis with all 6 personas for each recommendation.
 6. Return ONLY valid JSON matching the schema above. No markdown, no code fences.`;
 
-  const rawText = await callGeminiAPI(systemPrompt, userPrompt);
+  const rawText = await callGeminiAPI(systemPrompt, userPrompt, {
+    temperature: 0, topP: 1, topK: 40, maxOutputTokens: 8192, responseMimeType: 'application/json',
+    responseSchema: RECOMMENDATION_SCHEMA,
+  });
 
   const parsedResponse = repairJson(rawText);
   const validatedResponse = validateAndClampRecommendations(parsedResponse, normDur, params.type, params.lang);
@@ -1339,20 +1547,8 @@ export const analyzeSingleStock = async (params: SingleStockParams) => {
   };
   const volatilityGuard = volatilityThresholds[normTf] ?? 15;
 
-  // ── 精簡版 prompt：AI 只負責文字分析，不再生成趨勢線 ──
-  const systemPrompt = `Expert TAIWAN STOCK MARKET (TWSE/TPEX) analyst. Tickers are 4-digit numeric codes (e.g., 2330=TSMC 台積電). Prices are in TWD. Reference 加權指數 (TAIEX) as benchmark. Provide fundamental analysis, sentiment, catalysts, scenarios and key events. Do NOT generate predictionTrend (chart data generated locally). scenarios probabilities MUST sum to 100.
-
-Additionally, analyze from 6 investment style perspectives:
-- id:"value" (deep value, moats, margin of safety, long-term compounding)
-- id:"trader" (外資交易員 / Foreign institutional trader: 三大法人買賣超 flow, MSCI rebalancing, index-futures positioning, block trades, technical setups, momentum, risk/reward — Taiwan market context)
-- id:"growth" (growth at reasonable price, PEG, earnings growth)
-- id:"contrarian" (contrarian bets, hidden risks, deep value in distress)
-- id:"innovation" (disruptive innovation, exponential growth, future tech)
-- id:"trump" (Trump policy impact: tariffs, trade wars, deregulation, tax policy)
-Each persona: verdict (Buy/Hold/Avoid), score (0-100), headline (≤15 words), reasoning (1-2 sentences).
-
-Return ONLY valid JSON:
-{"ticker":"str","currentPrice":N,"targetPrice":N,"prediction":{"direction":"Bullish|Bearish|Neutral","confidence":0-100,"rationale":"str"},"catalysts":["str"],"bearCase":"str","technicals":{"supportLevels":[{"price":N,"label":"S1"}],"resistanceLevels":[{"price":N,"label":"R1"}]},"timeStop":N,"keyEvents":[{"date":"YYYY-MM-DD","type":"earnings|exDividend|conference|other","description":"str"}],"fundamentalScore":{"overall":0-100,"metrics":[{"name":"PE_vs_Peers|Revenue_Growth|FCF_Yield|Debt_Ratio","score":0-100,"direction":"Positive|Negative|Neutral","detail":"str"}]},"institutionalActivity":{"netInstitutionalFlow":"Accumulating|Distributing|Neutral","recentInsiderTrades":"str","topHolderChange":"str"},"sentiment":{"newsRatio":{"positive":N,"negative":N,"neutral":N},"analystRatings":{"buy":N,"hold":N,"sell":N},"summary":"str"},"scenarios":{"bull":{"probability":N,"targetPrice":N,"narrative":"str"},"base":{"probability":N,"targetPrice":N,"narrative":"str"},"bear":{"probability":N,"targetPrice":N,"narrative":"str"}},"personaAnalysis":[{"id":"value","verdict":"Buy","score":80,"headline":"str","reasoning":"str"},{"id":"trader","verdict":"Hold","score":60,"headline":"str","reasoning":"str"},{"id":"growth","verdict":"Buy","score":75,"headline":"str","reasoning":"str"},{"id":"contrarian","verdict":"Avoid","score":40,"headline":"str","reasoning":"str"},{"id":"innovation","verdict":"Buy","score":85,"headline":"str","reasoning":"str"},{"id":"trump","verdict":"Hold","score":55,"headline":"str","reasoning":"str"}]}`;
+  // ── 3 focused system prompts imported from ./prompts/prediction ──
+  // (edit prompt wording there, without touching logic here)
 
   const langInstruction = params.lang === 'zh' ? 'All text in 繁體中文.' : '';
 
@@ -1431,12 +1627,50 @@ ${evidenceBand.components.map((c) => `  · ${c.name} (${c.value}): ${c.driftPct 
 Your targetPrice MUST sit inside [Low, High]. Anchor base case near the Base price; bull/bear scenarios at High/Low. Justify in rationale by referencing the σ√T math AND specific drift components above (e.g., "20-day momentum +X%, RSI overbought −Y%, foreign net buy +Z%"). The band is data — explain how your call sits relative to it.`
     : '';
 
-  const userPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${newsContext}${instContext}${fundContext}${srContext}${evidenceContext}
-Provide 4 fundamental metrics, 3 scenarios(sum=100, prices anchored to band Low/Base/High above), sentiment (derive newsRatio from headlines if provided), institutional, 2-3 S/R levels, key events in the timeframe, catalysts, bear case. targetPrice MUST be within the evidence band shown above. ${langInstruction} JSON only.`;
+  // ── User prompts for 3 parallel agents ──────────────────────
+  const coreUserPrompt = `${params.ticker.toUpperCase()} analysis, timeframe=${normTf} (${params.timeframe}), today=${todayStr}. ${priceInfo} ${referenceConstraint}${identityLock}${instContext}${fundContext}${srContext}${evidenceContext}
+Provide: prediction direction + confidence + rationale, 2-4 catalysts, bear case, 1-3 key events in this timeframe, 3 scenarios (probabilities must sum to 100, prices inside evidence band). timeStop = stop-loss price below currentPrice. targetPrice MUST be within the evidence band. ${langInstruction} JSON only.`;
 
-  const rawText = await callGeminiAPI(systemPrompt, userPrompt);
+  const sentimentUserPrompt = newsContext.length > 0
+    ? `Ticker: ${params.ticker.toUpperCase()}${authoritativeName ? ` (${authoritativeName})` : ''}. Timeframe: ${normTf}.${newsContext}\nCompute newsRatio (% breakdown summing to 100), estimate analystRatings distribution, write 1-2 sentence summary. ${langInstruction} JSON only.`
+    : `Ticker: ${params.ticker.toUpperCase()}. No news available. Return neutral defaults. ${langInstruction} JSON only.`;
 
-  const parsedResponse = repairJson(rawText);
+  const personaUserPrompt = `Ticker: ${params.ticker.toUpperCase()}${authoritativeName ? ` (${authoritativeName})` : ''}. Price: NT$${livePrice?.toFixed(2) ?? 'N/A'}. Timeframe: ${normTf}.${fundContext}${instContext}
+Analyze from all 6 investor perspectives. ${langInstruction} JSON only.`;
+
+  // ── 3 parallel Gemini calls — wall-clock time cut from ~35s → ~15s ──
+  const geminiConfig = { temperature: 0, topP: 1, topK: 40, maxOutputTokens: 4096, responseMimeType: 'application/json' } as const;
+  const [coreResult, sentimentResult, personaResult] = await Promise.allSettled([
+    callGeminiAPI(PREDICTION_CORE_SYSTEM_PROMPT, coreUserPrompt, { ...geminiConfig, maxOutputTokens: 6144, responseSchema: PREDICTION_CORE_SCHEMA }),
+    callGeminiAPI(SENTIMENT_SYSTEM_PROMPT, sentimentUserPrompt, { ...geminiConfig, maxOutputTokens: 512, responseSchema: SENTIMENT_SCHEMA }),
+    callGeminiAPI(PERSONA_SYSTEM_PROMPT, personaUserPrompt, { ...geminiConfig, maxOutputTokens: 2048, responseSchema: PERSONA_SCHEMA }),
+  ]);
+
+  // Merge: core is required; sentiment + persona degrade gracefully
+  const coreRaw   = coreResult.status     === 'fulfilled' ? repairJson(coreResult.value)     : {};
+  const sentRaw   = sentimentResult.status === 'fulfilled' ? repairJson(sentimentResult.value) : {};
+  const personRaw = personaResult.status   === 'fulfilled' ? repairJson(personaResult.value)   : {};
+
+  if (coreResult.status === 'rejected') {
+    console.error('[Parallel Agent] Core prediction failed:', coreResult.reason);
+    throw coreResult.reason; // core is non-optional — rethrow
+  }
+  if (sentimentResult.status === 'rejected') {
+    console.warn('[Parallel Agent] Sentiment analysis failed (degraded gracefully):', sentimentResult.reason);
+  }
+  if (personaResult.status === 'rejected') {
+    console.warn('[Parallel Agent] Persona analysis failed (degraded gracefully):', personaResult.reason);
+  }
+
+  const parsedResponse = {
+    ...coreRaw,
+    sentiment: sentRaw.sentiment ?? {
+      newsRatio: { positive: 33, negative: 33, neutral: 34 },
+      analystRatings: { buy: 33, hold: 34, sell: 33 },
+      summary: params.lang === 'zh' ? '情緒資料不足' : 'Insufficient data for sentiment analysis.',
+    },
+    personaAnalysis: personRaw.personaAnalysis ?? [],
+  };
   const validatedResponse = validateAndClampPrediction(parsedResponse, normTf, params.lang);
 
   // 強制覆蓋為參考數據的精確價格（防止 AI 偏離）
@@ -1548,42 +1782,7 @@ export const analyzePortfolio = async (params: PortfolioParams) => {
   const cached = getCachedResult(cacheKey);
   if (cached) return cached;
 
-  const systemPrompt = `You are an expert portfolio analyst specializing in portfolio health assessments.
-You evaluate diversification, risk concentration, sector exposure, and individual holding quality.
-
-CRITICAL: Real-time stock prices will be provided to you. Use them as-is.
-- DO NOT invent or estimate prices - use ONLY the provided live prices
-
-${DETERMINISTIC_PROMPT}
-
-Assessment Focus:
-- Diversification analysis across sectors and market caps
-- Risk concentration identification
-- Individual stock quality review
-- Portfolio optimization recommendations
-- Rebalancing suggestions
-- Correlation analysis between holdings
-
-You MUST return a valid JSON object with this exact structure:
-{
-  "overallHealth": "string",
-  "portfolioScore": number (0-100),
-  "holdingsAnalysis": [
-    {
-      "ticker": "string",
-      "assessment": "string",
-      "riskLevel": "Low" | "Medium" | "High",
-      "recommendation": "string"
-    }
-  ],
-  "diversificationAnalysis": {
-    "sectorExposure": { "sector_name": number },
-    "concentration": "string",
-    "correlationIssues": ["string"]
-  },
-  "recommendations": ["string"],
-  "rebalancingSuggestions": ["string"]
-}`;
+  const systemPrompt = buildPortfolioSystemPrompt();
 
   const langInstruction = params.lang === 'zh'
     ? 'IMPORTANT: All text content in the JSON (overallHealth, assessment, concentration, recommendations, correlationIssues, rebalancingSuggestions) MUST be written in Traditional Chinese (繁體中文). Only ticker symbols and status values remain in English.'
@@ -1611,7 +1810,8 @@ ${langInstruction}
 Return ONLY valid JSON matching the schema above. No markdown, no code fences.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt, {
-    temperature: 0, topP: 1, topK: 40, responseMimeType: 'application/json',
+    temperature: 0, topP: 1, topK: 40, maxOutputTokens: 4096, responseMimeType: 'application/json',
+    responseSchema: PORTFOLIO_SCHEMA,
   });
 
   const result = repairJson(rawText);

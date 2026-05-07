@@ -3,15 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { AlertCircle, CheckCircle, Star, LineChart } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const PERSONA_CONFIG: Record<string, { bg: string; border: string; scoreColor: string; icon: string }> = {
-  value:       { bg: 'bg-amber-50',   border: 'border-amber-200',  scoreColor: 'text-amber-700',  icon: '💎' },
-  trader:      { bg: 'bg-orange-50',  border: 'border-orange-200', scoreColor: 'text-orange-700', icon: '🌐' },
-  growth:      { bg: 'bg-sky-50',     border: 'border-sky-200',    scoreColor: 'text-sky-700',    icon: '📈' },
-  contrarian:  { bg: 'bg-red-50',     border: 'border-red-200',    scoreColor: 'text-red-700',    icon: '🔄' },
-  innovation:  { bg: 'bg-violet-50',  border: 'border-violet-200', scoreColor: 'text-violet-700', icon: '🚀' },
-  trump:       { bg: 'bg-rose-50',    border: 'border-rose-200',   scoreColor: 'text-rose-700',   icon: '🏛️' },
-};
+import { PERSONA_CONFIG } from '@/lib/personaConfig';
 
 interface Signal {
   name: string;
@@ -235,9 +227,9 @@ export default function RecommendationCard({
                   className={cn(
                     'text-xs p-2 rounded-lg border',
                     signal.status === 'Positive'
-                      ? 'bg-teal-50 border-teal-200 text-teal-700'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                       : signal.status === 'Negative'
-                        ? 'bg-rose-50 border-rose-200 text-rose-700'
+                        ? 'bg-red-50 border-red-200 text-red-700'
                         : 'bg-slate-50 border-slate-200 text-slate-500'
                   )}
                 >
@@ -255,9 +247,9 @@ export default function RecommendationCard({
                     className={cn(
                       'text-xs p-2 rounded-lg border',
                       status === 'Positive'
-                        ? 'bg-teal-50 border-teal-200 text-teal-700'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                         : status === 'Negative'
-                          ? 'bg-rose-50 border-rose-200 text-rose-700'
+                          ? 'bg-red-50 border-red-200 text-red-700'
                           : 'bg-slate-50 border-slate-200 text-slate-500'
                     )}
                   >

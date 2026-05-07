@@ -1,70 +1,27 @@
 // ============================================================
-// HOKI Finance — Pure TypeScript financial calculation library
-// 台股版：Yahoo Finance ticker 自動補 .TW 後綴
+// HOKI Finance — barrel + computation layer
+//
+// I/O functions now live in src/lib/connectors/:
+//   yahoo.ts   → fetchHistoricalPrices, resolveYahooSymbol
+//   finmind.ts → fetchInstitutionalFlow, fetchFundamentals
+//   twse.ts    → fetchTickerName
+//   news.ts    → fetchNewsHeadlines
+//
+// All are re-exported below so callers need not change imports.
 // ============================================================
 
-/**
- * Normalize a user-entered ticker to Yahoo Finance Taiwan format.
- *  - '2330'    → '2330.TW'
- *  - '0050'    → '0050.TW'
- *  - '^TWII'   → '^TWII'    (台灣加權指數)
- *  - '2330.TW' → '2330.TW'  (already qualified)
- *  - 'AAPL'    → 'AAPL'     (fallback for non-numeric)
- */
-export function normalizeTwTicker(ticker: string): string {
-  const t = ticker.trim().toUpperCase();
-  if (!t) return t;
-  if (t.startsWith('^')) return t;
-  if (t.includes('.')) return t;
-  if (/^\d{4,6}[A-Z]?$/.test(t)) return `${t}.TW`;
-  return t;
-}
+// ── Re-exports from connectors (backward-compatible) ─────────
+export { normalizeTwTicker }                                from './connectors/types';
+export { fetchHistoricalPrices, resolveYahooSymbol }        from './connectors/yahoo';
+export { fetchInstitutionalFlow, fetchFundamentals }        from './connectors/finmind';
+export type { InstitutionalFlow, Fundamentals }             from './connectors/finmind';
+export { fetchTickerName }                                   from './connectors/twse';
+export { fetchNewsHeadlines }                                from './connectors/news';
 
-/**
- * 上市用 .TW，上櫃用 .TWO。
- * 先嘗試 .TW，若回傳空資料或 404，改用 .TWO 重試，並記憶結果（24h TTL）。
- */
-const suffixCache: Record<string, { sym: string; timestamp: number }> = {};
-const SUFFIX_TTL = 24 * 60 * 60 * 1000;
-
-async function resolveYahooSymbol(ticker: string): Promise<string> {
-  const base = normalizeTwTicker(ticker);
-  // 非台股純數字 ticker → 不需要偵測
-  if (!base.endsWith('.TW')) return base;
-
-  const cached = suffixCache[base];
-  if (cached && Date.now() - cached.timestamp < SUFFIX_TTL) return cached.sym;
-
-  // 嘗試 .TW
-  try {
-    const resp = await fetch(`/api/yahoo/v8/finance/chart/${encodeURIComponent(base)}?interval=1d&range=1d`);
-    if (resp.ok) {
-      const json = await resp.json();
-      if (json?.chart?.result?.[0]?.meta?.symbol) {
-        suffixCache[base] = { sym: base, timestamp: Date.now() };
-        return base;
-      }
-    }
-  } catch { /* fall through */ }
-
-  // Fallback：試 .TWO（上櫃）
-  const two = base.replace(/\.TW$/, '.TWO');
-  suffixCache[base] = { sym: two, timestamp: Date.now() };
-  return two;
-}
-
-// ────────────────────────────────────────────────────────────
-// Interfaces
-// ────────────────────────────────────────────────────────────
-
-export interface HistoricalPrice {
-  date: string; // YYYY-MM-DD
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+// ── Local imports (needed by computation functions in this file) ──
+import type { HistoricalPrice } from './connectors/yahoo';
+import { fetchHistoricalPrices } from './connectors/yahoo';
+export type { HistoricalPrice } from './connectors/yahoo';
 
 export interface EntryTimingResult {
   score: number; // 0-100, higher = better time to buy
@@ -124,24 +81,8 @@ export interface AccuracyResult {
 }
 
 // ────────────────────────────────────────────────────────────
-// In-memory cache (30 min TTL)
+// Local helpers (used by computation functions below)
 // ────────────────────────────────────────────────────────────
-
-const historyCache: Record<string, { data: HistoricalPrice[]; timestamp: number }> = {};
-const HISTORY_CACHE_TTL = 30 * 60 * 1000;
-
-// ────────────────────────────────────────────────────────────
-// Helpers
-// ────────────────────────────────────────────────────────────
-
-function daysToRange(days: number): string {
-  if (days <= 5) return '5d';
-  if (days <= 30) return '1mo';
-  if (days <= 90) return '3mo';
-  if (days <= 180) return '6mo';
-  if (days <= 365) return '1y';
-  return '2y';
-}
 
 /** Box-Muller transform: returns a standard-normal random number */
 function normalRandom(): number {
@@ -180,350 +121,6 @@ function addBusinessDays(start: Date, count: number): Date[] {
     }
   }
   return dates;
-}
-
-// ────────────────────────────────────────────────────────────
-// 1. Historical Data Fetching
-// ────────────────────────────────────────────────────────────
-
-export async function fetchHistoricalPrices(
-  ticker: string,
-  days: number = 60,
-): Promise<HistoricalPrice[]> {
-  const yahooSym = await resolveYahooSymbol(ticker);
-  const key = `${yahooSym}:${days}`;
-  const cached = historyCache[key];
-  if (cached && Date.now() - cached.timestamp < HISTORY_CACHE_TTL) {
-    return cached.data;
-  }
-
-  const range = daysToRange(days);
-  const url = `/api/yahoo/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=1d&range=${range}`;
-
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`Yahoo Finance request failed: ${resp.status}`);
-
-  const json = await resp.json();
-  const result = json?.chart?.result?.[0];
-  if (!result) throw new Error('No chart data returned from Yahoo Finance');
-
-  const timestamps: number[] = result.timestamp ?? [];
-  const quote = result.indicators?.quote?.[0] ?? {};
-  const opens: (number | null)[] = quote.open ?? [];
-  const highs: (number | null)[] = quote.high ?? [];
-  const lows: (number | null)[] = quote.low ?? [];
-  const closes: (number | null)[] = quote.close ?? [];
-  const volumes: (number | null)[] = quote.volume ?? [];
-
-  const prices: HistoricalPrice[] = [];
-  for (let i = 0; i < timestamps.length; i++) {
-    const o = opens[i];
-    const h = highs[i];
-    const l = lows[i];
-    const c = closes[i];
-    const v = volumes[i];
-    if (o == null || h == null || l == null || c == null) continue;
-    prices.push({
-      date: formatDate(new Date(timestamps[i] * 1000)),
-      open: o,
-      high: h,
-      low: l,
-      close: c,
-      volume: v ?? 0,
-    });
-  }
-
-  historyCache[key] = { data: prices, timestamp: Date.now() };
-  return prices;
-}
-
-// ────────────────────────────────────────────────────────────
-// Ticker → 中文公司名（從 Yahoo Finance meta，避免 AI 幻覺）
-// ────────────────────────────────────────────────────────────
-
-const nameCache: Record<string, { name: string; timestamp: number }> = {};
-const NAME_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
-
-export async function fetchTickerName(ticker: string): Promise<string | null> {
-  const yahooSym = await resolveYahooSymbol(ticker);
-  const cached = nameCache[yahooSym];
-  if (cached && Date.now() - cached.timestamp < NAME_CACHE_TTL) {
-    return cached.name;
-  }
-
-  // 1) 優先打 TWSE MIS API 拿中文名（tse=上市，otc=上櫃同時查）
-  const numeric = ticker.replace(/[^0-9]/g, '');
-  if (numeric.length >= 4) {
-    try {
-      const exCh = `tse_${numeric}.tw|otc_${numeric}.tw`;
-      const resp = await fetch(`/api/twse?ex_ch=${encodeURIComponent(exCh)}`);
-      if (resp.ok) {
-        const json = await resp.json();
-        const item = json?.msgArray?.[0];
-        const cn: string | undefined = item?.n; // 中文簡稱
-        if (cn) {
-          nameCache[yahooSym] = { name: cn, timestamp: Date.now() };
-          return cn;
-        }
-      }
-    } catch {
-      // fall through to Yahoo fallback
-    }
-  }
-
-  // 2) Fallback：Yahoo（多半英文，但比沒名字好）
-  try {
-    const url = `/api/yahoo/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=1d&range=1d`;
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const json = await resp.json();
-    const meta = json?.chart?.result?.[0]?.meta;
-    const name: string | undefined = meta?.longName || meta?.shortName;
-    if (!name) return null;
-    nameCache[yahooSym] = { name, timestamp: Date.now() };
-    return name;
-  } catch {
-    return null;
-  }
-}
-
-// ────────────────────────────────────────────────────────────
-// Institutional Flow（三大法人買賣超 via FinMind /api/finmind proxy）
-// ────────────────────────────────────────────────────────────
-
-export interface InstitutionalFlow {
-  foreign: { net: number };  // 外資（含陸資）— 單位：股
-  trust: { net: number };    // 投信
-  dealer: { net: number };   // 自營商（含避險）
-  totalNet: number;          // 三大法人合計（股）
-  totalNetLots: number;      // 三大法人合計（張，1 張=1000 股）
-  days: number;              // 實際回看交易日數
-  latestDate: string;        // 最新交易日 YYYY-MM-DD
-  avgDailyNetLots: number;   // 平均每日合計買賣超（張）
-}
-
-const instCache: Record<string, { data: InstitutionalFlow | null; timestamp: number }> = {};
-const INST_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours（盤後資料一日才更新一次）
-
-export async function fetchInstitutionalFlow(ticker: string, days = 5): Promise<InstitutionalFlow | null> {
-  const numeric = ticker.replace(/[^0-9]/g, '');
-  if (numeric.length < 4) return null;
-
-  const key = `${numeric}:${days}`;
-  const cached = instCache[key];
-  if (cached && Date.now() - cached.timestamp < INST_CACHE_TTL) return cached.data;
-
-  // 回看 days * 2 + 5 個日歷天，容納週末和國定假日
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - days * 2 - 7);
-  const startStr = start.toISOString().slice(0, 10);
-  const endStr = end.toISOString().slice(0, 10);
-
-  try {
-    const url = `/api/finmind?dataset=TaiwanStockInstitutionalInvestorsBuySell&data_id=${numeric}&start_date=${startStr}&end_date=${endStr}`;
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      instCache[key] = { data: null, timestamp: Date.now() };
-      return null;
-    }
-    const json = await resp.json();
-    const arr = json?.data;
-    if (!Array.isArray(arr) || arr.length === 0) {
-      instCache[key] = { data: null, timestamp: Date.now() };
-      return null;
-    }
-
-    // 按日期分組（同一日有 3-4 筆：外資/投信/自營商-自行/自營商-避險）
-    const byDate: Record<string, any[]> = {};
-    for (const row of arr) {
-      const d: string = row.date;
-      if (!d) continue;
-      if (!byDate[d]) byDate[d] = [];
-      byDate[d].push(row);
-    }
-    const sortedDates = Object.keys(byDate).sort().slice(-days);
-    if (sortedDates.length === 0) {
-      instCache[key] = { data: null, timestamp: Date.now() };
-      return null;
-    }
-
-    let foreignNet = 0;
-    let trustNet = 0;
-    let dealerNet = 0;
-
-    for (const d of sortedDates) {
-      for (const row of byDate[d]) {
-        // FinMind 欄位可能是 buy/sell 數量，或直接 buy_minus_sell
-        const net = typeof row.buy_minus_sell === 'number'
-          ? row.buy_minus_sell
-          : (row.buy ?? 0) - (row.sell ?? 0);
-        const name: string = String(row.name ?? '');
-
-        // FinMind 名稱可能是英文 Foreign_Investor / Investment_Trust / Dealer_self / Dealer_Hedging
-        // 或中文 外資/投信/自營商
-        if (name.includes('Foreign') || name.includes('外')) {
-          foreignNet += net;
-        } else if (name.includes('Investment_Trust') || name.includes('Trust') || name.includes('投信')) {
-          trustNet += net;
-        } else if (name.includes('Dealer') || name.includes('自營')) {
-          dealerNet += net;
-        }
-      }
-    }
-
-    const totalNet = foreignNet + trustNet + dealerNet;
-    const totalNetLots = Math.round(totalNet / 1000);
-    const result: InstitutionalFlow = {
-      foreign: { net: foreignNet },
-      trust: { net: trustNet },
-      dealer: { net: dealerNet },
-      totalNet,
-      totalNetLots,
-      days: sortedDates.length,
-      latestDate: sortedDates[sortedDates.length - 1],
-      avgDailyNetLots: Math.round(totalNetLots / sortedDates.length),
-    };
-    instCache[key] = { data: result, timestamp: Date.now() };
-    return result;
-  } catch {
-    instCache[key] = { data: null, timestamp: Date.now() };
-    return null;
-  }
-}
-
-// ────────────────────────────────────────────────────────────
-// Fundamentals (FinMind PER + MonthRevenue + BalanceSheet)
-// ────────────────────────────────────────────────────────────
-
-export interface Fundamentals {
-  pe: number | null;            // 本益比（最近交易日）
-  pb: number | null;            // 股價淨值比
-  divYield: number | null;      // 殖利率 %
-  asOfPER: string | null;       // PE 資料日 YYYY-MM-DD
-  revenueYoY: number | null;    // 最新月營收 YoY %
-  revenueDate: string | null;   // YYYY-MM
-  debtRatio: number | null;     // 負債比 = 總負債/總資產 %
-  asOfBS: string | null;        // 資產負債表日 YYYY-MM-DD
-}
-
-const fundCache: Record<string, { data: Fundamentals | null; timestamp: number }> = {};
-const FUND_CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
-
-export async function fetchFundamentals(ticker: string): Promise<Fundamentals | null> {
-  const numeric = ticker.replace(/[^0-9]/g, '');
-  if (numeric.length < 4) return null;
-
-  const cached = fundCache[numeric];
-  if (cached && Date.now() - cached.timestamp < FUND_CACHE_TTL) return cached.data;
-
-  // 回看不同期間取得三筆資料
-  const today = new Date();
-  const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
-
-  // PER: 最近 14 天找最新一筆
-  const perStart = new Date(today);
-  perStart.setDate(perStart.getDate() - 14);
-
-  // 月營收: 最近 14 個月（取最新一筆 YoY）
-  const revStart = new Date(today);
-  revStart.setMonth(revStart.getMonth() - 14);
-
-  // 資產負債表: 最近 6 個月（季報）
-  const bsStart = new Date(today);
-  bsStart.setMonth(bsStart.getMonth() - 6);
-
-  try {
-    const [perResp, revResp, bsResp] = await Promise.all([
-      fetch(`/api/finmind?dataset=TaiwanStockPER&data_id=${numeric}&start_date=${fmtDate(perStart)}&end_date=${fmtDate(today)}`),
-      fetch(`/api/finmind?dataset=TaiwanStockMonthRevenue&data_id=${numeric}&start_date=${fmtDate(revStart)}&end_date=${fmtDate(today)}`),
-      fetch(`/api/finmind?dataset=TaiwanStockBalanceSheet&data_id=${numeric}&start_date=${fmtDate(bsStart)}&end_date=${fmtDate(today)}`),
-    ]);
-
-    let pe: number | null = null;
-    let pb: number | null = null;
-    let divYield: number | null = null;
-    let asOfPER: string | null = null;
-    if (perResp.ok) {
-      const j = await perResp.json();
-      const arr = Array.isArray(j?.data) ? j.data : [];
-      if (arr.length > 0) {
-        const sorted = arr.slice().sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
-        const latest = sorted[sorted.length - 1];
-        const peRaw = latest?.PER ?? latest?.pe_ratio ?? latest?.per;
-        const pbRaw = latest?.PBR ?? latest?.pb_ratio ?? latest?.pbr;
-        const dyRaw = latest?.dividend_yield ?? latest?.dividendYield;
-        pe = typeof peRaw === 'number' && peRaw > 0 ? peRaw : null;
-        pb = typeof pbRaw === 'number' && pbRaw > 0 ? pbRaw : null;
-        divYield = typeof dyRaw === 'number' ? dyRaw : null;
-        asOfPER = latest?.date ?? null;
-      }
-    }
-
-    let revenueYoY: number | null = null;
-    let revenueDate: string | null = null;
-    if (revResp.ok) {
-      const j = await revResp.json();
-      const arr = Array.isArray(j?.data) ? j.data : [];
-      if (arr.length > 0) {
-        const sorted = arr.slice().sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
-        const latest = sorted[sorted.length - 1];
-        const y: number | undefined = latest?.revenue_year;
-        const m: number | undefined = latest?.revenue_month;
-        const latestRev: number = typeof latest?.revenue === 'number' ? latest.revenue : 0;
-        if (y && m && latestRev > 0) {
-          // 找去年同月（revenue_year = y-1, revenue_month = m）
-          const yoyRow = sorted.find((r: any) => r.revenue_year === y - 1 && r.revenue_month === m);
-          if (yoyRow && typeof yoyRow.revenue === 'number' && yoyRow.revenue > 0) {
-            revenueYoY = ((latestRev - yoyRow.revenue) / yoyRow.revenue) * 100;
-          }
-          revenueDate = `${y}-${String(m).padStart(2, '0')}`;
-        }
-      }
-    }
-
-    let debtRatio: number | null = null;
-    let asOfBS: string | null = null;
-    if (bsResp.ok) {
-      const j = await bsResp.json();
-      const arr = Array.isArray(j?.data) ? j.data : [];
-      if (arr.length > 0) {
-        // 取最新一個季度日期
-        const latestDate = arr.map((r: any) => r.date).sort().pop();
-        const sameDate = arr.filter((r: any) => r.date === latestDate);
-        let totalAssets = 0;
-        let totalLiab = 0;
-        for (const row of sameDate) {
-          const t = String(row.type ?? '');
-          const v = typeof row.value === 'number' ? row.value : 0;
-          if (t === 'TotalAssets' || t === 'Assets') totalAssets = v;
-          else if (t === 'TotalLiabilities' || t === 'Liabilities') totalLiab = v;
-        }
-        if (totalAssets > 0 && totalLiab > 0) {
-          debtRatio = (totalLiab / totalAssets) * 100;
-          asOfBS = latestDate;
-        }
-      }
-    }
-
-    const result: Fundamentals = {
-      pe, pb, divYield, asOfPER,
-      revenueYoY, revenueDate,
-      debtRatio, asOfBS,
-    };
-
-    // 全部 null 視為無資料
-    if (pe === null && revenueYoY === null && debtRatio === null) {
-      fundCache[numeric] = { data: null, timestamp: Date.now() };
-      return null;
-    }
-
-    fundCache[numeric] = { data: result, timestamp: Date.now() };
-    return result;
-  } catch {
-    fundCache[numeric] = { data: null, timestamp: Date.now() };
-    return null;
-  }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -785,31 +382,6 @@ export function computeEvidenceBand(args: {
     annualVolPct,
     components,
   };
-}
-
-// ────────────────────────────────────────────────────────────
-// News Headlines (Google News RSS via /api/news proxy)
-// ────────────────────────────────────────────────────────────
-
-const newsCache: Record<string, { headlines: string[]; timestamp: number }> = {};
-const NEWS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-
-export async function fetchNewsHeadlines(ticker: string, name: string | null): Promise<string[]> {
-  const key = ticker.toUpperCase();
-  const cached = newsCache[key];
-  if (cached && Date.now() - cached.timestamp < NEWS_CACHE_TTL) return cached.headlines;
-
-  const query = name ? `${name} ${ticker} 股票` : `${ticker} 台股`;
-  try {
-    const resp = await fetch(`/api/news?q=${encodeURIComponent(query)}`);
-    if (!resp.ok) return [];
-    const json = await resp.json();
-    const headlines: string[] = json?.titles ?? [];
-    if (headlines.length > 0) newsCache[key] = { headlines, timestamp: Date.now() };
-    return headlines;
-  } catch {
-    return [];
-  }
 }
 
 // ────────────────────────────────────────────────────────────

@@ -431,7 +431,7 @@ export default function HistorySection({ items, onRemove, onAddToWatchlist, onRe
                                 />
                               ))}
                               {resultData.riskWarnings?.length > 0 && (
-                                <div className="glass-card p-5 border-red-200 bg-red-50">
+                                <div className="border border-red-200 bg-red-50 rounded-xl p-4">
                                   <h4 className="text-sm font-bold text-red-700 mb-2">{t('ai.result.riskwarnings')}</h4>
                                   <ul className="space-y-1">
                                     {resultData.riskWarnings.map((w: string, i: number) => (

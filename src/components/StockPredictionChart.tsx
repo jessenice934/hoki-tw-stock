@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MonteCarloResult, EntryTimingResult } from '@/lib/finance';
+import { PERSONA_CONFIG } from '@/lib/personaConfig';
 
 // ─── Interfaces ───
 interface TrendDataPoint {
@@ -107,15 +108,6 @@ interface PredictionResult {
     reasoning: string;
   }[];
 }
-
-const PERSONA_CONFIG: Record<string, { bg: string; border: string; scoreColor: string; icon: string }> = {
-  value:       { bg: 'bg-amber-50',   border: 'border-amber-200',  scoreColor: 'text-amber-700',  icon: '💎' },
-  trader:      { bg: 'bg-orange-50',  border: 'border-orange-200', scoreColor: 'text-orange-700', icon: '🌐' },
-  growth:      { bg: 'bg-sky-50',     border: 'border-sky-200',    scoreColor: 'text-sky-700',    icon: '📈' },
-  contrarian:  { bg: 'bg-red-50',     border: 'border-red-200',    scoreColor: 'text-red-700',    icon: '🔄' },
-  innovation:  { bg: 'bg-violet-50',  border: 'border-violet-200', scoreColor: 'text-violet-700', icon: '🚀' },
-  trump:       { bg: 'bg-rose-50',    border: 'border-rose-200',   scoreColor: 'text-rose-700',   icon: '🏛️' },
-};
 
 interface StockPredictionChartProps {
   result: PredictionResult;
@@ -708,8 +700,8 @@ export default function StockPredictionChart({ result, monteCarloResult, entryTi
 
       {/* ═══ Section 12: Bear Case ═══ */}
       {bearCase && (
-        <div className="glass-card p-6 border-red-200 bg-red-50/50">
-          <div className="flex items-start gap-2">
+        <div className="glass-card p-6">
+          <div className="border border-red-200 bg-red-50 rounded-xl p-4 flex items-start gap-2">
             <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
             <div>
               <p className="text-sm font-semibold text-red-700 mb-1">{t('prediction.bearcase')}</p>
@@ -1009,10 +1001,10 @@ export default function StockPredictionChart({ result, monteCarloResult, entryTi
                             {t(`prediction.persona.${persona.id}`)}
                           </span>
                           <span className={cn(
-                            'px-2 py-0.5 rounded-full text-xs font-bold',
-                            persona.verdict === 'Buy'   ? 'bg-emerald-100 text-emerald-700' :
-                            persona.verdict === 'Avoid' ? 'bg-red-100 text-red-700' :
-                                                          'bg-slate-100 text-slate-600'
+                            'px-2 py-0.5 rounded-md text-xs font-semibold border',
+                            persona.verdict === 'Buy'   ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                            persona.verdict === 'Avoid' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                          'bg-slate-50 text-slate-600 border-slate-200'
                           )}>
                             {t(`prediction.persona.verdict.${persona.verdict.toLowerCase()}`)}
                           </span>

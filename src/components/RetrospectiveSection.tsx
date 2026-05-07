@@ -86,15 +86,15 @@ export default function RetrospectiveSection({ items, userId }: Props) {
       </div>
 
       {/* Scope tabs */}
-      <div className="glass-card p-1.5 inline-flex gap-1">
+      <div className="glass-card rounded-full p-1.5 inline-flex gap-1">
         {tabs.map(({ id, label }) => (
           <motion.button
             key={id}
             onClick={() => setScope(id)}
             className={cn(
-              'px-5 py-2 rounded-xl text-sm font-semibold transition-all',
+              'px-5 py-2 rounded-full text-sm font-semibold transition-all',
               scope === id
-                ? 'bg-blue-600 text-white shadow-md'
+                ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
             )}
             whileHover={{ scale: scope === id ? 1 : 1.02 }}

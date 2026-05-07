@@ -117,7 +117,7 @@ export default function HealthCheckCard({ result, onAddToWatchlist, watchedTicke
                   cx="48"
                   cy="48"
                   r="40"
-                  stroke="#2563EB"
+                  stroke="#3F4E89"
                   strokeWidth="4"
                   fill="none"
                   strokeDasharray={`${(result.portfolioScore / 100) * 251.2} 251.2`}
@@ -186,7 +186,7 @@ export default function HealthCheckCard({ result, onAddToWatchlist, watchedTicke
           {result.holdingsAnalysis.map((holding, idx) => (
             <motion.div
               key={idx}
-              className="border border-gray-200 rounded-lg p-4 bg-slate-50/50"
+              className="border border-gray-200 rounded-xl p-4 bg-slate-50/50"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.3 + idx * 0.1 }}
@@ -199,10 +199,10 @@ export default function HealthCheckCard({ result, onAddToWatchlist, watchedTicke
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => onAnalyze(holding.ticker)}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition-all"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-all"
                       aria-label={t('cta.analyze')}
                     >
-                      <LineChart className="w-3 h-3" />
+                      <LineChart className="w-4 h-4" />
                       {t('cta.analyze')}
                     </motion.button>
                   )}
@@ -212,13 +212,13 @@ export default function HealthCheckCard({ result, onAddToWatchlist, watchedTicke
                       whileTap={!watchedTickers.includes(holding.ticker) ? { scale: 0.95 } : {}}
                       onClick={() => !watchedTickers.includes(holding.ticker) && onAddToWatchlist(holding.ticker)}
                       className={cn(
-                        'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all',
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all',
                         watchedTickers.includes(holding.ticker)
                           ? 'bg-blue-100 text-blue-600 cursor-default'
-                          : 'bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-blue-600'
+                          : 'bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600'
                       )}
                     >
-                      <Star className={cn('w-3 h-3', watchedTickers.includes(holding.ticker) && 'fill-blue-600')} />
+                      <Star className={cn('w-4 h-4', watchedTickers.includes(holding.ticker) && 'fill-blue-600')} />
                       {watchedTickers.includes(holding.ticker) ? t('watchlist.tracked') : t('watchlist.track')}
                     </motion.button>
                   )}
@@ -255,12 +255,12 @@ export default function HealthCheckCard({ result, onAddToWatchlist, watchedTicke
         transition={{ delay: 0.4 }}
       >
         <h3 className="text-xl font-bold text-slate-900 mb-4">{t('health.result.diversification')}</h3>
-        <div className="mb-4 p-4 bg-slate-50 rounded-lg border border-gray-200">
+        <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-gray-200">
           <p className="text-sm text-slate-600">{result.diversificationAnalysis.concentration}</p>
         </div>
         {result.diversificationAnalysis.correlationIssues &&
           result.diversificationAnalysis.correlationIssues.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
               <p className="text-sm font-semibold text-amber-700 mb-2">
                 {t('health.result.correlation')}
               </p>

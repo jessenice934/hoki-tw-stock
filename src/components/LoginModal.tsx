@@ -149,7 +149,7 @@ export default function LoginModal({ open, onClose, onSuccess }: LoginModalProps
               </div>
 
               {/* Tabs */}
-              <div className="glass-card rounded-full p-1 flex mb-6 bg-slate-50">
+              <div className="glass-card rounded-full p-1.5 flex mb-6">
                 <button
                   type="button"
                   onClick={() => switchMode('login')}
