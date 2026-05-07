@@ -1450,15 +1450,18 @@ MANDATORY REQUIREMENTS:
   const parsedResponse = repairJson(rawText);
 
   // ── 用我們自己抓的 livePrice 強制覆蓋 AI 可能亂給的 currentPrice ──
-  // 這是 clamp 的基準，不能讓 AI 自訂
+  // 同時過濾掉 AI 幻覺出的、不在我們候選池內的 ticker
   if (Array.isArray(parsedResponse?.recommendations)) {
-    for (const rec of parsedResponse.recommendations) {
-      const lp = livePrices[rec.ticker];
-      if (lp && lp > 0) {
-        rec.currentPrice = lp;
-        rec.entryPrice   = lp; // entryPrice 用於 UI 的潛在報酬計算
+    parsedResponse.recommendations = parsedResponse.recommendations.filter((rec: any) => {
+      const lp = livePrices[(rec.ticker ?? '').toUpperCase()];
+      if (!lp || lp <= 0) {
+        console.warn(`[Price Override] Dropping ${rec.ticker}: not in candidate pool or no live price`);
+        return false;
       }
-    }
+      rec.currentPrice = lp;
+      rec.entryPrice   = lp; // entryPrice 用於 UI 的潛在報酬計算
+      return true;
+    });
   }
 
   const validatedResponse = validateAndClampRecommendations(parsedResponse, normDur, params.type, params.lang);
