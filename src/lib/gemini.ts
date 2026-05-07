@@ -1,5 +1,5 @@
 // Gemini calls go through /api/gemini (server-side keys, never in browser bundle)
-import { normalizeTwTicker, fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals, fetchHistoricalPrices, computeSupportResistance, calculateRSI, HistoricalPrice, computeEvidenceBand, EvidenceBand } from './finance';
+import { fetchTickerName, fetchNewsHeadlines, fetchInstitutionalFlow, InstitutionalFlow, fetchFundamentals, Fundamentals, fetchHistoricalPrices, resolveYahooSymbol, computeSupportResistance, calculateRSI, HistoricalPrice, computeEvidenceBand, EvidenceBand } from './finance';
 import { SIGNAL_ENFORCEMENT_PROMPT, VOLATILITY_GUARD_PROMPT, DETERMINISTIC_PROMPT } from './prompts/shared';
 import { buildReviewSystemPrompt } from './prompts/review';
 import { buildRecommendationSystemPrompt } from './prompts/recommendation';
@@ -14,7 +14,9 @@ const priceCache: Record<string, { price: number; timestamp: number }> = {};
 const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 分鐘快取
 
 export async function fetchLivePrice(ticker: string): Promise<number | null> {
-  const yahooSym = normalizeTwTicker(ticker);
+  // ⚠️ 重要：上櫃股票（TPEX）需要 .TWO 後綴。resolveYahooSymbol 會先試 .TW，
+  // 沒資料時自動 fallback 到 .TWO，避免讓 OTC 股票直接拿不到即時價。
+  const yahooSym = await resolveYahooSymbol(ticker);
   const cached = priceCache[yahooSym];
   if (cached && Date.now() - cached.timestamp < PRICE_CACHE_TTL) {
     return cached.price;
