@@ -50,15 +50,42 @@ const resultCache: Record<string, { data: any; timestamp: number }> = {};
 const RESULT_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 小時（跨重啟也有效）
 const LS_CACHE_PREFIX = 'hoki_ai_cache:';
 
+// ⚠️ 每次修改了 clamp 邏輯就遞增 CACHE_VERSION，強制清除舊快取
+const CACHE_VERSION = 'v3';
 function getCacheKey(prefix: string, ...parts: string[]): string {
   const today = new Date().toISOString().slice(0, 10);
-  return `${prefix}:${today}:${parts.join(':')}`;
+  return `${prefix}:${today}:${CACHE_VERSION}:${parts.join(':')}`;
+}
+
+/** 快取價格合理性檢查：targetPrice 不能超過 currentPrice 的兩倍，timeStop 必須低於 currentPrice */
+function isCachedPriceSane(data: any): boolean {
+  const cp = data?.currentPrice;
+  if (!cp || cp <= 0) return true; // 無 currentPrice 的快取（例如推薦清單）不做此檢查
+  const tp = data?.targetPrice;
+  const ts = data?.timeStop;
+  if (tp && tp > cp * 2) return false;          // targetPrice > 200% 明顯異常
+  if (ts && ts >= cp) return false;             // timeStop 高於現價 → 無意義
+  // 對 recommendations 陣列也做檢查
+  if (Array.isArray(data?.recommendations)) {
+    for (const rec of data.recommendations) {
+      const rcp = rec.currentPrice;
+      if (!rcp || rcp <= 0) continue;
+      if (rec.targetPrice && rec.targetPrice > rcp * 2) return false;
+      if (rec.stopLoss && rec.stopLoss >= rcp) return false;
+    }
+  }
+  return true;
 }
 
 function getCachedResult(key: string): any | null {
   // 1. 先查記憶體快取
   const mem = resultCache[key];
   if (mem && Date.now() - mem.timestamp < RESULT_CACHE_TTL) {
+    if (!isCachedPriceSane(mem.data)) {
+      console.warn('[Cache] Stale/invalid price data in memory cache, invalidating:', key);
+      delete resultCache[key];
+      return null;
+    }
     return mem.data;
   }
   // 2. 查 localStorage（跨重啟）
@@ -67,6 +94,11 @@ function getCachedResult(key: string): any | null {
     if (raw) {
       const parsed: { data: any; timestamp: number } = JSON.parse(raw);
       if (Date.now() - parsed.timestamp < RESULT_CACHE_TTL) {
+        if (!isCachedPriceSane(parsed.data)) {
+          console.warn('[Cache] Stale/invalid price data in localStorage, invalidating:', key);
+          localStorage.removeItem(LS_CACHE_PREFIX + key);
+          return null;
+        }
         resultCache[key] = parsed; // 同步到記憶體
         return parsed.data;
       }
