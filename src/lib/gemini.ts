@@ -1124,13 +1124,15 @@ function validateAndClampRecommendations(response: any, duration: string, sector
   return response;
 }
 
-function validateAndClampPrediction(response: any, duration: string, lang?: string): any {
+function validateAndClampPrediction(response: any, duration: string, lang?: string, anchorPrice?: number | null): any {
   const durationKey = normalizeTimeframe(duration) as keyof typeof VOLATILITY_GUARD;
   const volatilityConfig = VOLATILITY_GUARD[durationKey] || VOLATILITY_GUARD['1m'];
   const maxStopLossPercent = volatilityConfig.stopLossMax;
   const limitMultiplier = getLimitMultiplier(duration);
 
-  const currentPrice = response.currentPrice || 0;
+  // anchorPrice（live market price）優先；AI 的 currentPrice 作為 fallback
+  const currentPrice = (anchorPrice && anchorPrice > 0) ? anchorPrice : (response.currentPrice || 0);
+  if (currentPrice > 0) response.currentPrice = currentPrice; // 修正 AI 可能亂給的值
   const targetPrice = response.targetPrice || 0;
   const timeStop = response.timeStop || 0;
   let wasClamped = false;
@@ -1696,7 +1698,7 @@ Analyze from all 6 investor perspectives. ${langInstruction} JSON only.`;
     },
     personaAnalysis: personRaw.personaAnalysis ?? [],
   };
-  const validatedResponse = validateAndClampPrediction(parsedResponse, normTf, params.lang);
+  const validatedResponse = validateAndClampPrediction(parsedResponse, normTf, params.lang, livePrice);
 
   // 強制覆蓋為參考數據的精確價格（防止 AI 偏離）
   if (params.reference) {
