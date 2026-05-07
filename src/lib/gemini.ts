@@ -1064,16 +1064,25 @@ function validateAndClampRecommendations(response: any, duration: string, sector
     }
 
     // Stop loss clamping
-    if (currentPrice > 0 && stopLoss < currentPrice) {
-      const lossPercent = ((stopLoss - currentPrice) / currentPrice) * 100;
-
-      if (lossPercent < maxStopLossPercent) {
+    if (currentPrice > 0) {
+      if (stopLoss >= currentPrice) {
+        // AI 給了比現價還高的停損（完全無效）→ 設為最大允許停損
         const clampedStopLoss = currentPrice * (1 + maxStopLossPercent / 100);
         console.warn(
-          `[Math Clamp] ${rec.ticker} stop loss: $${stopLoss.toFixed(2)} → $${clampedStopLoss.toFixed(2)} (${lossPercent.toFixed(1)}% → ${maxStopLossPercent}%)`
+          `[Math Clamp] ${rec.ticker} stop loss ABOVE current price: $${stopLoss.toFixed(2)} → $${clampedStopLoss.toFixed(2)} (reset to ${maxStopLossPercent}%)`
         );
         rec.stopLoss = clampedStopLoss;
         wasClamped = true;
+      } else {
+        const lossPercent = ((stopLoss - currentPrice) / currentPrice) * 100;
+        if (lossPercent < maxStopLossPercent) {
+          const clampedStopLoss = currentPrice * (1 + maxStopLossPercent / 100);
+          console.warn(
+            `[Math Clamp] ${rec.ticker} stop loss: $${stopLoss.toFixed(2)} → $${clampedStopLoss.toFixed(2)} (${lossPercent.toFixed(1)}% → ${maxStopLossPercent}%)`
+          );
+          rec.stopLoss = clampedStopLoss;
+          wasClamped = true;
+        }
       }
     }
 
@@ -1439,6 +1448,19 @@ MANDATORY REQUIREMENTS:
   });
 
   const parsedResponse = repairJson(rawText);
+
+  // ── 用我們自己抓的 livePrice 強制覆蓋 AI 可能亂給的 currentPrice ──
+  // 這是 clamp 的基準，不能讓 AI 自訂
+  if (Array.isArray(parsedResponse?.recommendations)) {
+    for (const rec of parsedResponse.recommendations) {
+      const lp = livePrices[rec.ticker];
+      if (lp && lp > 0) {
+        rec.currentPrice = lp;
+        rec.entryPrice   = lp; // entryPrice 用於 UI 的潛在報酬計算
+      }
+    }
+  }
+
   const validatedResponse = validateAndClampRecommendations(parsedResponse, normDur, params.type, params.lang);
 
   // ═══ 用真實 12 量化訊號覆蓋 AI 編造的 signals（每檔並行） ═══
