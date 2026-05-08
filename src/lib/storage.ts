@@ -68,6 +68,19 @@ function historyKey(userId?: string | null) {
 function watchlistKey(userId: string) {
   return `stock_ai_watchlist_${userId}`;
 }
+/** 釘選狀態獨立存放，不進雲端 sync，避免 syncWatchlistFromCloud 覆蓋 */
+function pinnedKey(userId: string) {
+  return `stock_ai_watchlist_pinned_${userId}`;
+}
+function getPinnedTickers(userId: string): Set<string> {
+  try {
+    const data = localStorage.getItem(pinnedKey(userId));
+    return new Set(data ? JSON.parse(data) : []);
+  } catch { return new Set(); }
+}
+function savePinnedTickers(pinned: Set<string>, userId: string) {
+  localStorage.setItem(pinnedKey(userId), JSON.stringify([...pinned]));
+}
 function dailyKey(userId: string) {
   const today = new Date().toISOString().slice(0, 10);
   return `daily_analysis_${userId}_${today}`;
@@ -188,7 +201,10 @@ export const addToWatchlist = (item: WatchlistItem, userId: string) => {
 export const getWatchlist = (userId?: string | null): WatchlistItem[] => {
   if (!userId) return [];
   const data = localStorage.getItem(watchlistKey(userId));
-  return data ? JSON.parse(data) : [];
+  const items: WatchlistItem[] = data ? JSON.parse(data) : [];
+  const pinned = getPinnedTickers(userId);
+  // 合併釘選狀態（釘選存獨立 key，不受 cloud sync 覆蓋）
+  return items.map(item => ({ ...item, pinned: pinned.has(item.ticker) || !!item.pinned }));
 };
 
 export const removeFromWatchlist = (ticker: string, userId: string) => {
@@ -209,12 +225,11 @@ export const updateWatchlistPrice = (ticker: string, price: string, userId: stri
 };
 
 export const toggleWatchlistPin = (ticker: string, userId: string) => {
-  const updated = getWatchlist(userId).map(item =>
-    item.ticker === ticker ? { ...item, pinned: !item.pinned } : item
-  );
-  localStorage.setItem(watchlistKey(userId), JSON.stringify(updated));
-  const updatedItem = updated.find(i => i.ticker === ticker);
-  if (updatedItem) cloudUpsertWatchlistItem(updatedItem, userId).catch(() => {});
+  const pinned = getPinnedTickers(userId);
+  if (pinned.has(ticker)) pinned.delete(ticker);
+  else pinned.add(ticker);
+  savePinnedTickers(pinned, userId);
+  // 無需 cloudUpsert — 釘選狀態僅存本地，不進雲端
 };
 
 // ============================================================
