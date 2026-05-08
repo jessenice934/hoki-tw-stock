@@ -56,6 +56,7 @@ export interface WatchlistItem {
   targetPrice?: string;
   entryPrice?: string;
   currentPrice?: string;
+  pinned?: boolean;
 }
 
 // ============================================================
@@ -201,6 +202,15 @@ export const removeFromWatchlist = (ticker: string, userId: string) => {
 export const updateWatchlistPrice = (ticker: string, price: string, userId: string) => {
   const updated = getWatchlist(userId).map(item =>
     item.ticker === ticker ? { ...item, currentPrice: price } : item
+  );
+  localStorage.setItem(watchlistKey(userId), JSON.stringify(updated));
+  const updatedItem = updated.find(i => i.ticker === ticker);
+  if (updatedItem) cloudUpsertWatchlistItem(updatedItem, userId).catch(() => {});
+};
+
+export const toggleWatchlistPin = (ticker: string, userId: string) => {
+  const updated = getWatchlist(userId).map(item =>
+    item.ticker === ticker ? { ...item, pinned: !item.pinned } : item
   );
   localStorage.setItem(watchlistKey(userId), JSON.stringify(updated));
   const updatedItem = updated.find(i => i.ticker === ticker);

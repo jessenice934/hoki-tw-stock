@@ -33,6 +33,7 @@ import {
   updateTask,
   getWatchlist,
   removeFromWatchlist,
+  toggleWatchlistPin,
   addToWatchlist,
   updateWatchlistPrice,
   canAnalyze,
@@ -1598,6 +1599,10 @@ export default function App() {
                   items={watchlist}
                   onRemove={(ticker) => {
                     removeFromWatchlist(ticker, currentUser!.id);
+                    setWatchlist(getWatchlist(currentUser?.id));
+                  }}
+                  onPin={(ticker) => {
+                    toggleWatchlistPin(ticker, currentUser!.id);
                     setWatchlist(getWatchlist(currentUser?.id));
                   }}
                   onRefresh={handleRefreshPrices}

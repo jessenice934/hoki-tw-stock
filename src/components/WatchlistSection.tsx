@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Activity, TrendingUp, LineChart, Zap, Loader, ArrowRight } from 'lucide-react';
+import { Trash2, Activity, TrendingUp, LineChart, Zap, Loader, ArrowRight, Pin } from 'lucide-react';
 import { WatchlistItem } from '@/lib/storage';
 import { getStockName } from '@/lib/stockNames';
 
@@ -18,6 +18,8 @@ interface WatchlistSectionProps {
   onRemove: (ticker: string) => void;
   onRefresh: () => void;
   loading: boolean;
+  /** 切換釘選狀態 */
+  onPin?: (ticker: string) => void;
   /** 跳到個股預測並自動填入 ticker。沒傳就不顯示按鈕。 */
   onAnalyze?: (ticker: string) => void;
   /** 一鍵隔日快速預測，回傳 { price, taskId } 或 null（失敗/額度不足）。 */
@@ -43,6 +45,7 @@ export default function WatchlistSection({
   onRemove,
   onRefresh,
   loading,
+  onPin,
   onAnalyze,
   onQuickPredict,
   onViewDetail,
@@ -66,6 +69,13 @@ export default function WatchlistSection({
 
   // 任何一支股票正在快速預測時，鎖定整個介面
   const isAnyLoading = Object.values(quickPredicts).some(qp => qp.loading);
+
+  // 釘選的排在最前面，其餘維持原順序
+  const sortedItems = [...items].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return 0;
+  });
 
   if (items.length === 0) {
     return (
@@ -109,13 +119,14 @@ export default function WatchlistSection({
 
       {/* Stock Cards */}
       <div className="space-y-4">
-        {items.map((item, idx) => (
+        {sortedItems.map((item, idx) => (
           <motion.div
             key={item.ticker}
+            layout
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.08 }}
-            className="glass-card p-4 md:p-5"
+            transition={{ delay: idx * 0.05, layout: { duration: 0.25, ease: 'easeInOut' } }}
+            className={`glass-card p-4 md:p-5 ${item.pinned ? 'ring-1 ring-amber-300/60' : ''}`}
           >
             {/* Main row */}
             <div className="flex items-start gap-3 md:gap-4">
@@ -123,6 +134,9 @@ export default function WatchlistSection({
               {/* Info (takes all remaining space) */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
+                  {item.pinned && (
+                    <Pin className="w-3 h-3 text-amber-500 flex-shrink-0 fill-amber-400" aria-hidden />
+                  )}
                   <h3 className="text-base font-bold text-slate-900 leading-tight">{item.ticker}</h3>
                   <span className="px-2 py-0.5 rounded-md bg-slate-100 text-[11px] text-slate-500 flex-shrink-0">
                     {formatDate(item.addedAt)}
@@ -185,6 +199,25 @@ export default function WatchlistSection({
                     title={t('cta.analyze')}
                   >
                     <LineChart className="w-3.5 h-3.5 md:w-4 md:h-4 text-blue-600" />
+                  </motion.button>
+                )}
+
+                {/* Pin 📌 */}
+                {onPin && (
+                  <motion.button
+                    whileHover={!isAnyLoading ? { scale: 1.08 } : {}}
+                    whileTap={!isAnyLoading ? { scale: 0.94 } : {}}
+                    onClick={() => !isAnyLoading && onPin(item.ticker)}
+                    disabled={isAnyLoading}
+                    className={`w-9 h-9 md:w-10 md:h-10 rounded-xl border flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
+                      item.pinned
+                        ? 'bg-amber-100 border-amber-300 hover:bg-amber-200'
+                        : 'bg-slate-100 border-slate-200 hover:bg-amber-50 hover:border-amber-200'
+                    }`}
+                    aria-label={item.pinned ? t('watchlist.unpin') : t('watchlist.pin')}
+                    title={item.pinned ? t('watchlist.unpin') : t('watchlist.pin')}
+                  >
+                    <Pin className={`w-3.5 h-3.5 md:w-4 md:h-4 transition-colors ${item.pinned ? 'text-amber-500 fill-amber-400' : 'text-slate-400'}`} />
                   </motion.button>
                 )}
 
