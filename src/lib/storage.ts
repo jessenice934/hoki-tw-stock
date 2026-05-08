@@ -71,6 +71,23 @@ function dailyKey(userId: string) {
   const today = new Date().toISOString().slice(0, 10);
   return `daily_analysis_${userId}_${today}`;
 }
+/** 手動刪除的 task ID tombstone — 防止雲端 sync 把刪除的資料還原 */
+function tombstoneKey(userId: string) {
+  return `stock_ai_deleted_ids_${userId}`;
+}
+function getTombstones(userId: string): Set<string> {
+  try {
+    const data = localStorage.getItem(tombstoneKey(userId));
+    return new Set(data ? JSON.parse(data) : []);
+  } catch { return new Set(); }
+}
+function addTombstone(id: string, userId: string) {
+  const set = getTombstones(userId);
+  set.add(id);
+  // 最多保留 500 筆，避免無限增長
+  const arr = [...set].slice(-500);
+  localStorage.setItem(tombstoneKey(userId), JSON.stringify(arr));
+}
 
 // ============================================================
 // History
@@ -90,7 +107,10 @@ export const getHistory = (userId?: string | null): InvestmentTask[] => {
 export const removeTask = (id: string, userId?: string | null) => {
   const key = historyKey(userId);
   localStorage.setItem(key, JSON.stringify(getHistory(userId).filter(i => i.id !== id)));
-  if (userId) cloudDeleteTask(id, userId).catch(() => {});
+  if (userId) {
+    addTombstone(id, userId); // 防止 sync 把雲端刪除的資料還原
+    cloudDeleteTask(id, userId).catch(() => {});
+  }
 };
 
 export const clearHistory = (userId?: string | null) => {
@@ -295,9 +315,11 @@ export async function syncHistoryFromCloud(userId: string): Promise<void> {
     }
 
     // 合併後按日期排序，寫回 localStorage
-    const merged = [...cloudRecords, ...localOnly].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
+    // 排除曾被手動刪除的 ID（tombstone），避免雲端 sync 還原已刪資料
+    const tombstones = getTombstones(userId);
+    const merged = [...cloudRecords, ...localOnly]
+      .filter(r => !tombstones.has(r.id))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     localStorage.setItem(historyKey(userId), JSON.stringify(merged));
   } catch (e) {
     console.warn('[sync] syncHistoryFromCloud failed:', e);
