@@ -289,6 +289,18 @@ function CritiquePanel({
       {/* Lesson display */}
       {lesson && (
         <div className="space-y-4">
+          {/* Stale warning — shown when history was edited after lesson was generated */}
+          {lesson.basedOnCount !== stats.taskCount && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700">
+                {t('retrospective.critique.stale', {
+                  old: lesson.basedOnCount,
+                  current: stats.taskCount,
+                })}
+              </p>
+            </div>
+          )}
           <div className="text-xs text-slate-400">
             {t('retrospective.critique.based.on', {
               count: lesson.basedOnCount,
