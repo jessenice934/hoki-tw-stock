@@ -89,6 +89,7 @@ export async function cloudUpsertWatchlistItem(item: WatchlistItem, userId: stri
       target_price:  item.targetPrice  ?? null,
       entry_price:   item.entryPrice   ?? null,
       current_price: item.currentPrice ?? null,
+      pinned:        item.pinned       ?? false,
     },
     { onConflict: 'ticker,user_id' }
   );
@@ -109,7 +110,7 @@ export async function cloudFetchWatchlist(userId: string): Promise<WatchlistItem
   if (!isSupabaseConfigured) return [];
   const { data, error } = await supabase
     .from('user_watchlist')
-    .select('ticker, name, added_at, target_price, entry_price, current_price')
+    .select('ticker, name, added_at, target_price, entry_price, current_price, pinned')
     .eq('user_id', userId)
     .order('added_at', { ascending: false });
   if (error || !data) {
@@ -123,6 +124,7 @@ export async function cloudFetchWatchlist(userId: string): Promise<WatchlistItem
     targetPrice:  row.target_price  ?? undefined,
     entryPrice:   row.entry_price   ?? undefined,
     currentPrice: row.current_price ?? undefined,
+    pinned:       row.pinned        ?? false,
   }));
 }
 

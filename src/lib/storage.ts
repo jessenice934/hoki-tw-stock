@@ -225,11 +225,15 @@ export const updateWatchlistPrice = (ticker: string, price: string, userId: stri
 };
 
 export const toggleWatchlistPin = (ticker: string, userId: string) => {
+  // 更新 pinned set（本地快取）
   const pinned = getPinnedTickers(userId);
   if (pinned.has(ticker)) pinned.delete(ticker);
   else pinned.add(ticker);
   savePinnedTickers(pinned, userId);
-  // 無需 cloudUpsert — 釘選狀態僅存本地，不進雲端
+
+  // 同步到雲端：更新 WatchlistItem 的 pinned 欄位
+  const item = getWatchlist(userId).find(i => i.ticker === ticker);
+  if (item) cloudUpsertWatchlistItem(item, userId).catch(() => {});
 };
 
 // ============================================================
@@ -375,6 +379,14 @@ export async function syncWatchlistFromCloud(userId: string): Promise<void> {
 
     const merged = [...cloudItems, ...localOnly];
     localStorage.setItem(watchlistKey(userId), JSON.stringify(merged));
+
+    // 雲端 pinned 狀態同步回本地 pinnedKey
+    const cloudPinned = new Set(cloudItems.filter(i => i.pinned).map(i => i.ticker));
+    const localPinned = getPinnedTickers(userId);
+    // 合併：雲端釘選 + 本地釘選（取聯集，以防其中一方較新）
+    cloudItems.forEach(i => { if (i.pinned) localPinned.add(i.ticker); else localPinned.delete(i.ticker); });
+    void cloudPinned; // used above
+    savePinnedTickers(localPinned, userId);
   } catch (e) {
     console.warn('[sync] syncWatchlistFromCloud failed:', e);
   }
