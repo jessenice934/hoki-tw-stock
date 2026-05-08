@@ -790,6 +790,8 @@ export default function App() {
     setAiAnalyzing(false);
     // 切換到自選頁時自動更新一次現價
     if (tab === 'watchlist') handleRefreshPrices();
+    // 切換到分析回顧時重新讀取 history（確保刪除後即時反映）
+    if (tab === 'retrospective') setHistory(getHistory(currentUser?.id));
     // 每次切換 tab / 回首頁 / 點 logo → 回到頁面頂端
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
