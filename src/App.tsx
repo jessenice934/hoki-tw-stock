@@ -831,7 +831,9 @@ export default function App() {
       if (!currentUser) { incrementAnalysesUsed(); refreshTrialState(); }
       else { incrementDailyAnalysis(currentUser.id); refreshTrialState(); }
       setHistory(getHistory(currentUser?.id));
-      const bullProb = result.scenarios?.bull?.probability ?? null;
+      // prediction.confidence = AI 對預測方向的信心值（0–100）
+      // scenarios.bull.probability = 三情境之一的發生機率（bull+base+bear=100），≠ 方向信心
+      const bullProb = result.prediction?.confidence ?? null;
       return {
         price:        result.targetPrice ?? 0,
         currentPrice: result.currentPrice ?? null,
