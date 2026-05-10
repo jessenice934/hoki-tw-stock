@@ -277,21 +277,18 @@ export default function WatchlistSection({
                             const pct = (diff / base) * 100;
                             const up = diff >= 0;
                             return (
-                              <span className={`text-xs font-semibold ${up ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {up ? '+' : ''}{diff.toFixed(2)} ({up ? '+' : ''}{pct.toFixed(1)}%)
-                              </span>
-                            );
-                          })()}
-                          {(() => {
-                            const qp = quickPredicts[item.ticker];
-                            if (qp.bullProb == null) return null;
-                            const up = qp.bullProb >= 50;
-                            return (
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                                up ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
-                              }`}>
-                                {up ? '↗' : '↘'} {up ? t('watchlist.bullish') : t('watchlist.bearish')} {qp.bullProb}%
-                              </span>
+                              <>
+                                <span className={`text-xs font-semibold ${up ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {up ? '+' : ''}{diff.toFixed(2)} ({up ? '+' : ''}{pct.toFixed(1)}%)
+                                </span>
+                                {qp.bullProb != null && (
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                    up ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                                  }`}>
+                                    {up ? '↗' : '↘'} {up ? t('watchlist.bullish') : t('watchlist.bearish')} {qp.bullProb}%
+                                  </span>
+                                )}
+                              </>
                             );
                           })()}
                         </div>
