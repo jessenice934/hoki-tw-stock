@@ -807,7 +807,7 @@ export default function App() {
     setPredictionTicker(ticker.toUpperCase());
   };
 
-  const handleQuickPredict = async (ticker: string): Promise<{ price: number; taskId: string } | null> => {
+  const handleQuickPredict = async (ticker: string): Promise<{ price: number; currentPrice?: number | null; bullProb?: number | null; taskId: string } | null> => {
     if (!canAnalyze(currentUser)) {
       if (!currentUser) setLoginOpen(true);
       return null;
@@ -831,7 +831,13 @@ export default function App() {
       if (!currentUser) { incrementAnalysesUsed(); refreshTrialState(); }
       else { incrementDailyAnalysis(currentUser.id); refreshTrialState(); }
       setHistory(getHistory(currentUser?.id));
-      return { price: result.targetPrice ?? 0, taskId };
+      const bullProb = result.scenarios?.bull?.probability ?? null;
+      return {
+        price:        result.targetPrice ?? 0,
+        currentPrice: result.currentPrice ?? null,
+        bullProb,
+        taskId,
+      };
     } catch {
       return null;
     } finally {

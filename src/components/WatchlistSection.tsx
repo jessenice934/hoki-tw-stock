@@ -8,6 +8,8 @@ import { getStockName } from '@/lib/stockNames';
 interface QuickPredictState {
   loading: boolean;
   price?: number;
+  currentPrice?: number | null;
+  bullProb?: number | null;
   date?: string;
   taskId?: string;
   error?: boolean;
@@ -22,8 +24,8 @@ interface WatchlistSectionProps {
   onPin?: (ticker: string) => void;
   /** 跳到個股預測並自動填入 ticker。沒傳就不顯示按鈕。 */
   onAnalyze?: (ticker: string) => void;
-  /** 一鍵隔日快速預測，回傳 { price, taskId } 或 null（失敗/額度不足）。 */
-  onQuickPredict?: (ticker: string) => Promise<{ price: number; taskId: string } | null>;
+  /** 一鍵隔日快速預測，回傳 { price, currentPrice, bullProb, taskId } 或 null（失敗/額度不足）。 */
+  onQuickPredict?: (ticker: string) => Promise<{ price: number; currentPrice?: number | null; bullProb?: number | null; taskId: string } | null>;
   /** 「看詳細」點下去後，以 taskId 導到歷史紀錄並展開該筆。 */
   onViewDetail?: (taskId: string) => void;
 }
@@ -60,7 +62,14 @@ export default function WatchlistSection({
     if (result !== null) {
       setQuickPredicts(prev => ({
         ...prev,
-        [ticker]: { loading: false, price: result.price, date: getTomorrowStr(), taskId: result.taskId },
+        [ticker]: {
+          loading: false,
+          price: result.price,
+          currentPrice: result.currentPrice,
+          bullProb: result.bullProb,
+          date: getTomorrowStr(),
+          taskId: result.taskId,
+        },
       }));
     } else {
       setQuickPredicts(prev => ({ ...prev, [ticker]: { loading: false, error: true } }));
@@ -255,9 +264,37 @@ export default function WatchlistSection({
                             {quickPredicts[item.ticker].date}
                           </span>
                         </p>
-                        <p className="text-lg md:text-xl font-bold text-amber-600 font-data">
-                          NT${quickPredicts[item.ticker].price!.toFixed(2)}
-                        </p>
+                        {/* 目標價 + 漲跌幅 + 看漲機率 */}
+                        <div className="flex items-baseline flex-wrap gap-x-2 gap-y-0.5">
+                          <p className="text-lg md:text-xl font-bold text-amber-600 font-data">
+                            NT${quickPredicts[item.ticker].price!.toFixed(2)}
+                          </p>
+                          {(() => {
+                            const qp = quickPredicts[item.ticker];
+                            const base = qp.currentPrice ?? parseFloat(item.currentPrice ?? '0');
+                            if (!base || !qp.price) return null;
+                            const diff = qp.price - base;
+                            const pct = (diff / base) * 100;
+                            const up = diff >= 0;
+                            return (
+                              <span className={`text-xs font-semibold ${up ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                {up ? '+' : ''}{diff.toFixed(2)} ({up ? '+' : ''}{pct.toFixed(1)}%)
+                              </span>
+                            );
+                          })()}
+                          {(() => {
+                            const qp = quickPredicts[item.ticker];
+                            if (qp.bullProb == null) return null;
+                            const up = qp.bullProb >= 50;
+                            return (
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                up ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                              }`}>
+                                {up ? '↗' : '↘'} {up ? t('watchlist.bullish') : t('watchlist.bearish')} {qp.bullProb}%
+                              </span>
+                            );
+                          })()}
+                        </div>
                       </div>
                       {(onViewDetail || onAnalyze) && (
                         <motion.button
