@@ -123,6 +123,11 @@ function friendlyError(msg: string, lang: string): string {
       ? '網路連線失敗，請檢查網路後重試。'
       : 'Network connection failed. Please check your connection and try again.';
   }
+  if (msg.includes('insufficient-history') || msg.includes('Not enough historical data')) {
+    return isZh
+      ? '此標的歷史資料不足，暫不支援分析（常見於權證、牛熊證或剛上市的新股）。'
+      : 'Insufficient historical data. This ticker may be a warrant, CBBC, or newly listed stock.';
+  }
   if (msg.includes('Failed to parse')) {
     return isZh
       ? 'AI 回應格式異常，請重試一次。'
@@ -474,6 +479,12 @@ export default function App() {
 
       if (currentPrice === 0) {
         throw new Error(i18n.language === 'zh' ? '無法取得最新收盤價，請稍後再試' : 'Could not fetch latest close price. Please try again.');
+      }
+
+      // 權證／牛熊證等結構性商品的歷史數據極少（validRanges 通常只有 1d/5d），
+      // Monte Carlo 至少需要 5 筆以上 log return，資料不足時提前拋出友善錯誤。
+      if (stockHistory.length < 5) {
+        throw new Error('insufficient-history');
       }
 
       // 本地技術指標
