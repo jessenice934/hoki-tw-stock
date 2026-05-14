@@ -1422,6 +1422,7 @@ export const generateInvestmentAdvice = async (params: InvestmentParams) => {
 
   const typeName = typeMap[params.type] || params.type;
   const volatilityThresholds: Record<string, number> = {
+    '1d': 4,   // 隔天：ETF 日波動率約 1–2%，最多允許 4% 目標漲幅
     '1w': 8,
     '2w': 10,
     '3w': 12,
