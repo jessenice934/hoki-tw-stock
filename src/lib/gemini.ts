@@ -1526,8 +1526,9 @@ MANDATORY REQUIREMENTS:
     const MIN_ABSOLUTE = 2;
     validatedResponse.recommendations = validatedResponse.recommendations.filter((rec: any) => {
       if (!rec.signals) return true;
+      const NO_DATA_PATTERNS = ['N/A', '建置中', '查無資料', 'No data', '資料不足', 'Insufficient'];
       const measurable = rec.signals.filter(
-        (s: any) => s.value !== 'N/A' && !String(s.value ?? '').includes('建置中'),
+        (s: any) => !NO_DATA_PATTERNS.some(p => String(s.value ?? '').includes(p)),
       );
       const positive = measurable.filter((s: any) => s.status === 'Positive').length;
       if (measurable.length === 0) return true; // 完全沒資料就不過濾
