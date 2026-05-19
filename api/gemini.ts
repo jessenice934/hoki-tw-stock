@@ -10,16 +10,18 @@
 // Node.js Serverless runtime — supports maxDuration for longer AI calls
 export const maxDuration = 60;
 
-// flash-lite first: no thinking mode, consistently fast.
-// flash second: only for fallback when lite fails or produces empty output.
-const MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'];
+// flash first (with thinkingBudget:0 for speed): handles complex recommendation
+// schemas reliably. flash-lite as fallback for simple calls when flash is overloaded.
+const MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 // Shared deadline across all retries (leave 2s buffer before Vercel's 60s hard limit).
 const TOTAL_BUDGET_MS = 58_000;
-// Reduced from 50s → 40s so a single-call timeout still leaves room for one retry.
-const PER_CALL_TIMEOUT_MS = 40_000;
+// Per-call timeout — 50s gives flash room to generate complex JSON schemas
+// (10+ recs × 12 signals × 6 personas) within a single attempt. If flash hits 503
+// before the timeout fires we can still fall back to flash-lite with remaining budget.
+const PER_CALL_TIMEOUT_MS = 50_000;
 // If a fast-fail error (overload / 503) occurs and we still have this much time, try fallback.
-const MIN_FALLBACK_BUDGET_MS = 20_000;
+const MIN_FALLBACK_BUDGET_MS = 8_000;
 
 export default async function handler(
   req: { method: string; body: unknown },
@@ -70,9 +72,12 @@ export default async function handler(
   let modelIndex = 0;
   let lastError = '';
   let attemptCount = 0;
+  // Track keys tried on current model — when all keys exhausted, swap model
+  let triedOnCurrentModel = new Set<number>();
 
   while (budgetRemaining() > MIN_FALLBACK_BUDGET_MS && attemptCount < keys.length * MODELS.length) {
     attemptCount++;
+    triedOnCurrentModel.add(keyIndex);
 
     // Skip dead keys
     let skip = 0;
@@ -121,10 +126,20 @@ export default async function handler(
         const msg = data.error?.message ?? `HTTP ${geminiRes.status}`;
         lastError = msg;
         if (geminiRes.status === 400 || geminiRes.status === 403) deadKeys.add(keyIndex);
-        // 404 = model not found → try next model
-        // 503/overloaded = this model busy → swap to next model (flash-lite)
-        // 429 = rate limit → rotate key
-        if (geminiRes.status === 404 || geminiRes.status === 503) modelIndex++;
+        // 404 = model not found → swap model immediately
+        // 503/overloaded or 429 rate limit → rotate key first; only swap model after
+        //   exhausting all keys on current model (lite is much slower for complex
+        //   schemas, so we'd rather wait out a transient flash overload than fall
+        //   through to lite prematurely)
+        if (geminiRes.status === 404) {
+          modelIndex++;
+          triedOnCurrentModel = new Set();
+        } else if (geminiRes.status === 503 || geminiRes.status === 429) {
+          if (triedOnCurrentModel.size >= keys.length - deadKeys.size) {
+            modelIndex++;
+            triedOnCurrentModel = new Set();
+          }
+        }
         keyIndex = (keyIndex + 1) % keys.length;
         continue;
       }
@@ -150,7 +165,8 @@ export default async function handler(
       lastError = isTimeout
         ? `Gemini timeout after ${(callTimeout / 1000).toFixed(0)}s`
         : msg;
-      // On timeout, don't keep retrying — we've already burned most of the budget.
+      // On timeout we've already burned most of the budget — give up. Retrying
+      // the same prompt rarely helps when the model genuinely can't finish in time.
       if (isTimeout) break;
       keyIndex = (keyIndex + 1) % keys.length;
     } finally {

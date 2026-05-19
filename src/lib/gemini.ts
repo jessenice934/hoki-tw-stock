@@ -1475,12 +1475,13 @@ MANDATORY REQUIREMENTS:
 1. Use ONLY the live prices provided above as currentPrice for each recommendation.
 2. Analyze from the perspective of all 10 master investors. Focus on persona fit, sector category match, and price targets.
 3. Apply the volatility guard STRICTLY: maximum target gain ${volatilityGuard}%.
-4. Include all 12 signals for each recommendation as placeholders — backend will OVERWRITE them with real-data signals (FinMind/TWSE/RSI/MACD), so do not waste effort fabricating values.
-5. Include personaAnalysis with all 6 personas for each recommendation.
-6. Return ONLY valid JSON matching the schema above. No markdown, no code fences.`;
+4. Include all 12 signals for each recommendation as placeholders — backend will OVERWRITE them with real-data signals (FinMind/TWSE/RSI/MACD), so do not waste effort fabricating values. Keep signal values as short strings (e.g. "0", "N/A") — backend replaces them anyway.
+5. Include personaAnalysis with all 6 personas for each recommendation. Keep headline ≤15 words and reasoning to 1 short sentence (≤30 words) — concise output is critical to fit within response limits.
+6. STRICTLY return at most 6 recommendations. Choose the 6 strongest candidates only. More than 6 will exceed response token limits and fail.
+7. Return ONLY valid JSON matching the schema above. No markdown, no code fences.`;
 
   const rawText = await callGeminiAPI(systemPrompt, userPrompt, {
-    temperature: 0, topP: 1, topK: 40, maxOutputTokens: 8192, responseMimeType: 'application/json',
+    temperature: 0, topP: 1, topK: 40, maxOutputTokens: 16384, responseMimeType: 'application/json',
     responseSchema: RECOMMENDATION_SCHEMA,
   });
 
