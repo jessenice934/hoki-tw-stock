@@ -21,10 +21,12 @@ export async function fetchTickerName(ticker: string): Promise<string | null> {
   if (cached && Date.now() - cached.timestamp < NAME_CACHE_TTL) return cached.name;
 
   // 1) TWSE MIS API — returns authoritative Chinese short name
-  const numeric = ticker.replace(/[^0-9]/g, '');
-  if (numeric.length >= 4) {
+  // 保留字母尾碼（00685L、00631L、00980A 等槓桿/反向/主動式 ETF），
+  // 只去掉 .TW/.TWO 交易所後綴 — TWSE 查詢需要完整代號，砍掉尾碼會查不到
+  const code = ticker.trim().toUpperCase().replace(/\.(TW|TWO)$/, '');
+  if (/^\d{4,6}[A-Z]{0,2}$/.test(code)) {
     try {
-      const exCh = `tse_${numeric}.tw|otc_${numeric}.tw`;
+      const exCh = `tse_${code}.tw|otc_${code}.tw`;
       const resp = await fetch(`/api/twse?ex_ch=${encodeURIComponent(exCh)}`);
       if (resp.ok) {
         const json = await resp.json();
