@@ -28,7 +28,10 @@ export async function fetchTickerName(ticker: string): Promise<string | null> {
       const resp = await fetch(`/api/twse?ex_ch=${encodeURIComponent(exCh)}`);
       if (resp.ok) {
         const json = await resp.json();
-        const cn: string | undefined = json?.msgArray?.[0]?.n;
+        // 上市(TSE)和上櫃(OTC)兩個查詢會回兩筆 msgArray；上櫃股 [0] 是空的 TSE placeholder
+        // ({"tv":"-","s":"-",...})，真實資料在 [1]。掃全部陣列，找第一個有 n 的
+        const arr: Array<{ n?: string }> = Array.isArray(json?.msgArray) ? json.msgArray : [];
+        const cn = arr.find(row => row?.n)?.n;
         if (cn) {
           nameCache[yahooSym] = { name: cn, timestamp: Date.now() };
           return cn;

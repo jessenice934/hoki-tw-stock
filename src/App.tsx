@@ -790,12 +790,18 @@ export default function App() {
     }
   };
 
-  // 舊資料 backfill：把 name 還是 ticker（或空）的自選項目補寫真實中文股名
+  // 舊資料 backfill：把 name 遺漏、等於 ticker、或為純英文的自選項目補寫真實中文股名
+  // （純英文通常是 Yahoo fallback 抓回來的，原本 TWSE OTC 讀取邏輯有 bug）
   const backfillWatchlistNames = async () => {
     const uid = currentUser?.id;
     if (!uid) return;
     const items = getWatchlist(uid);
-    const missing = items.filter(i => !i.name || i.name === i.ticker);
+    const needsFix = (name: string | undefined, ticker: string) => {
+      if (!name || name === ticker) return true;
+      // 名字裡完全沒有中文字元 → 應該是 Yahoo fallback 撿到的英文名，需要重抓
+      return !/[一-鿿]/.test(name);
+    };
+    const missing = items.filter(i => needsFix(i.name, i.ticker));
     if (missing.length === 0) return;
     await Promise.all(missing.map(async (i) => {
       const realName = await fetchTickerName(i.ticker).catch(() => null);
