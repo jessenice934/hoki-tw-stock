@@ -36,6 +36,7 @@ import {
   toggleWatchlistPin,
   addToWatchlist,
   updateWatchlistPrice,
+  updateWatchlistName,
   canAnalyze,
   getAnalysesRemaining,
   incrementAnalysesUsed,
@@ -70,6 +71,7 @@ import {
   calculateVolumeProfile,
   MonteCarloResult,
   EntryTimingResult,
+  fetchTickerName,
 } from '@/lib/finance';
 import { useDropzone } from 'react-dropzone';
 
@@ -788,6 +790,20 @@ export default function App() {
     }
   };
 
+  // 舊資料 backfill：把 name 還是 ticker（或空）的自選項目補寫真實中文股名
+  const backfillWatchlistNames = async () => {
+    const uid = currentUser?.id;
+    if (!uid) return;
+    const items = getWatchlist(uid);
+    const missing = items.filter(i => !i.name || i.name === i.ticker);
+    if (missing.length === 0) return;
+    await Promise.all(missing.map(async (i) => {
+      const realName = await fetchTickerName(i.ticker).catch(() => null);
+      if (realName && realName !== i.ticker) updateWatchlistName(i.ticker, realName, uid);
+    }));
+    setWatchlist(getWatchlist(uid));
+  };
+
   const switchTab = (tab: Tab) => {
     if (loading) return; // 分析進行中，禁止切換頁籤
     setActiveTab(tab);
@@ -799,8 +815,11 @@ export default function App() {
     setEntryTimingResult(null);
     setVolatilityMetrics(null);
     setAiAnalyzing(false);
-    // 切換到自選頁時自動更新一次現價
-    if (tab === 'watchlist') handleRefreshPrices();
+    // 切換到自選頁時自動更新一次現價 + 補寫遺漏的中文股名
+    if (tab === 'watchlist') {
+      handleRefreshPrices();
+      backfillWatchlistNames();
+    }
     // 切換到分析回顧時：補跑 auto-review（抓住登入後新增並已到期的任務），再重讀 history
     if (tab === 'retrospective') {
       runAutoReview().then(() => setHistory(getHistory(currentUser?.id)));
@@ -1388,11 +1407,12 @@ export default function App() {
                         entryTimingResult={entryTimingResult}
                         volatilityMetrics={volatilityMetrics}
                         aiAnalyzing={aiAnalyzing}
-                        onAddToWatchlist={() => {
+                        onAddToWatchlist={async () => {
                           if (!currentUser) { setLoginOpen(true); return; }
+                          const realName = await fetchTickerName(predictionResult.ticker).catch(() => null);
                           const item = {
                             ticker: predictionResult.ticker,
-                            name: predictionResult.ticker,
+                            name: realName || predictionResult.ticker,
                             addedAt: new Date().toISOString(),
                             targetPrice: predictionResult.targetPrice?.toFixed(2),
                             currentPrice: predictionResult.currentPrice?.toFixed(2),
@@ -1538,11 +1558,12 @@ export default function App() {
                     <ResultDisclaimerBanner />
                     <HealthCheckCard
                       result={result.data}
-                      onAddToWatchlist={(ticker) => {
+                      onAddToWatchlist={async (ticker) => {
                         if (!currentUser) { setLoginOpen(true); return; }
+                        const realName = await fetchTickerName(ticker).catch(() => null);
                         const item = {
                           ticker,
-                          name: ticker,
+                          name: realName || ticker,
                           addedAt: new Date().toISOString(),
                         };
                         addToWatchlist(item, currentUser!.id);
@@ -1653,11 +1674,16 @@ export default function App() {
                     removeTask(id, currentUser?.id);
                     setHistory(getHistory(currentUser?.id));
                   }}
-                  onAddToWatchlist={(ticker, name, prices) => {
+                  onAddToWatchlist={async (ticker, name, prices) => {
                     if (!currentUser) { setLoginOpen(true); return; }
+                    // 若 caller 沒帶 name（或帶的就是 ticker），去 TWSE/Yahoo 查真實中文名
+                    let displayName = name;
+                    if (!displayName || displayName === ticker) {
+                      displayName = (await fetchTickerName(ticker).catch(() => null)) || ticker;
+                    }
                     const item = {
                       ticker,
-                      name: name || ticker,
+                      name: displayName,
                       addedAt: new Date().toISOString(),
                       currentPrice: prices?.currentPrice,
                       targetPrice: prices?.targetPrice,

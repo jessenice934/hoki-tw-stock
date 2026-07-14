@@ -224,6 +224,15 @@ export const updateWatchlistPrice = (ticker: string, price: string, userId: stri
   if (updatedItem) cloudUpsertWatchlistItem(updatedItem, userId).catch(() => {});
 };
 
+export const updateWatchlistName = (ticker: string, name: string, userId: string) => {
+  const updated = getWatchlist(userId).map(item =>
+    item.ticker === ticker ? { ...item, name } : item
+  );
+  localStorage.setItem(watchlistKey(userId), JSON.stringify(updated));
+  const updatedItem = updated.find(i => i.ticker === ticker);
+  if (updatedItem) cloudUpsertWatchlistItem(updatedItem, userId).catch(() => {});
+};
+
 export const toggleWatchlistPin = (ticker: string, userId: string) => {
   // 更新 pinned set（本地快取）
   const pinned = getPinnedTickers(userId);
