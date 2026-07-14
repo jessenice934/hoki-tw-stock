@@ -227,12 +227,20 @@ export const updateWatchlistPrice = (ticker: string, price: string, userId: stri
 export const toggleWatchlistPin = (ticker: string, userId: string) => {
   // 更新 pinned set（本地快取）
   const pinned = getPinnedTickers(userId);
-  if (pinned.has(ticker)) pinned.delete(ticker);
-  else pinned.add(ticker);
+  const nowPinned = !pinned.has(ticker);
+  if (nowPinned) pinned.add(ticker);
+  else pinned.delete(ticker);
   savePinnedTickers(pinned, userId);
 
+  // 同時更新 localStorage 陣列裡的 item.pinned，避免 cloud sync 帶回的舊值
+  // 讓 getWatchlist() 的 OR 判斷永遠取消不掉
+  const raw = localStorage.getItem(watchlistKey(userId));
+  const items: WatchlistItem[] = raw ? JSON.parse(raw) : [];
+  const updated = items.map(i => i.ticker === ticker ? { ...i, pinned: nowPinned } : i);
+  localStorage.setItem(watchlistKey(userId), JSON.stringify(updated));
+
   // 同步到雲端：更新 WatchlistItem 的 pinned 欄位
-  const item = getWatchlist(userId).find(i => i.ticker === ticker);
+  const item = updated.find(i => i.ticker === ticker);
   if (item) cloudUpsertWatchlistItem(item, userId).catch(() => {});
 };
 
